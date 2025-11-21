@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="icons/yapmicpassult.png" alt="YaP Mic Pass Ult Logo" width="200">
+</div>
+
 # YaP Mic Pass Ult
 
 A client-server application for streaming microphone audio over the network. The server creates a virtual audio input device that can be selected in any application, making remote microphone streaming seamless.
@@ -6,7 +10,9 @@ A client-server application for streaming microphone audio over the network. The
 
 - **Client**: Captures microphone audio and streams it to a server over TCP
 - **Server**: Receives audio stream and creates a virtual input device (Linux using PulseAudio)
-- **Low Latency**: Direct streaming with minimal buffering
+- **Low Latency**: Direct streaming with minimal buffering and quality presets
+- **Volume Control**: Adjustable volume/gain on both client and server (0.0-2.0)
+- **Quality Presets**: Choose between low latency, balanced, or high quality modes
 - **Cross-Platform Client**: Works on Linux, Windows, and macOS
 - **GUI and CLI**: Both graphical and command-line interfaces available
 - **Simple Configuration**: Easy-to-use interfaces for configuration
@@ -171,11 +177,12 @@ python3 server.py
 Options:
 - `--port PORT`: Specify server port (default: 5000)
 - `--name NAME`: Specify virtual device name (default: YaP-Mic-Pass-Ult)
+- `--volume VOLUME`: Set virtual device volume (0.0-2.0, default: 1.0)
 - `--no-pulseaudio`: Disable PulseAudio virtual device (Linux only)
 
 Example:
 ```bash
-python3 server.py --port 5000 --name MyVirtualMic
+python3 server.py --port 5000 --name MyVirtualMic --volume 1.5
 ```
 
 The server will:
@@ -198,9 +205,11 @@ Options:
 - `--host HOST`: Server hostname or IP address (default: localhost)
 - `--port PORT`: Server port (default: 5000)
 - `--device INDEX`: Audio input device index (use `--list` to see available devices)
-- `--rate RATE`: Sample rate in Hz (default: 44100)
+- `--rate RATE`: Sample rate in Hz (default: 44100, lower = less latency)
 - `--channels N`: Number of audio channels, 1 or 2 (default: 1)
-- `--chunk SIZE`: Chunk size in frames (default: 1024)
+- `--chunk SIZE`: Chunk size in frames (default: 128, lower = less latency but more CPU)
+- `--volume VOLUME`: Volume/gain multiplier (0.0-2.0, default: 1.0)
+- `--quality QUALITY`: Quality preset: `low_latency`, `balanced` (default), or `high_quality`
 - `--list`: List available audio input devices and exit
 
 Examples:
@@ -218,6 +227,16 @@ python3 client.py --host 192.168.1.100 --port 5000
 Use a specific microphone device:
 ```bash
 python3 client.py --host 192.168.1.100 --device 2
+```
+
+Use low latency mode for gaming/real-time applications:
+```bash
+python3 client.py --host 192.168.1.100 --quality low_latency
+```
+
+Adjust volume/gain:
+```bash
+python3 client.py --host 192.168.1.100 --volume 1.5
 ```
 
 ### Complete Example
@@ -247,14 +266,17 @@ After connection, the server will stream audio to the virtual device, which you 
 
 1. **Client**: 
    - Captures audio from the microphone using PyAudio
-   - Sends configuration (sample rate, channels, chunk size) to server
-   - Continuously streams raw PCM audio data over TCP
+   - Applies volume/gain adjustment if specified
+   - Sends configuration (sample rate, channels, chunk size, quality preset) to server
+   - Continuously streams raw PCM audio data over TCP with low-latency optimizations
 
 2. **Server**:
    - Creates a PulseAudio pipe-source module (virtual input device)
+   - Configures virtual device volume if specified
    - Opens a named pipe (FIFO) for audio data
    - Receives audio stream from client
    - Writes audio data to the pipe, which PulseAudio reads and makes available as a virtual microphone
+   - Uses adaptive buffering based on quality preset for optimal performance
 
 ## Troubleshooting
 
@@ -283,6 +305,9 @@ After connection, the server will stream audio to the virtual device, which you 
 ### Audio quality issues
 - Ensure both client and server use the same sample rate (default 44100 Hz)
 - Try adjusting chunk size with `--chunk` option (smaller = lower latency but more CPU)
+- Use `--quality low_latency` for gaming/real-time applications (reduces latency)
+- Use `--quality high_quality` for best audio quality (increases latency)
+- Adjust volume with `--volume` option if audio is too quiet or too loud (0.0-2.0)
 
 ### Connection drops
 - Check network stability
