@@ -10,6 +10,40 @@ import threading
 import queue
 import sys
 import os
+
+# Suppress ALSA warnings (PyAudio tries multiple backends, these are harmless)
+if hasattr(sys, '_getframe'):
+    # Only suppress if not in debug mode
+    if '--debug' not in sys.argv and '-v' not in sys.argv:
+        # Save original stderr
+        _original_stderr = sys.stderr
+        
+        class FilteredStderr:
+            """Filter out ALSA/JACK warnings while keeping errors."""
+            def __init__(self, original):
+                self.original = original
+            
+            def write(self, text):
+                # Filter out common ALSA/JACK warnings
+                if any(keyword in text.lower() for keyword in [
+                    'alsa lib', 'jack server', 'cannot connect to server socket',
+                    'unknown pcm', 'unable to open slave', 'jackshmreadwriteptr',
+                    'pcm_dsnoop', 'pcm_dmix', 'pcm_oss', 'pcm_a52', 'pcm_usb_stream',
+                    'pcm_jack_open'
+                ]):
+                    return  # Suppress these warnings
+                self.original.write(text)
+            
+            def flush(self):
+                self.original.flush()
+            
+            def __getattr__(self, name):
+                return getattr(self.original, name)
+        
+        # Only filter if we're not in a terminal that might want to see errors
+        if not sys.stderr.isatty() or os.getenv('SUPPRESS_ALSA_WARNINGS', '1') == '1':
+            sys.stderr = FilteredStderr(_original_stderr)
+
 import pyaudio
 
 # Try to import PIL for icon support
@@ -34,15 +68,8 @@ class ClientGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("YaP Mic Pass Ult - Client")
-        self.root.geometry("750x650")
+        self.root.geometry("700x600")
         self.root.resizable(True, True)
-        
-        # Configure modern style
-        style = ttk.Style()
-        style.theme_use('clam')  # Modern theme
-        style.configure('Title.TLabel', font=('Segoe UI', 14, 'bold'))
-        style.configure('Status.TLabel', font=('Segoe UI', 9))
-        style.configure('Heading.TLabel', font=('Segoe UI', 10, 'bold'))
         
         # Set window icon
         self._set_window_icon()
@@ -128,22 +155,17 @@ class ClientGUI:
             pass
     
     def create_widgets(self):
-        # Main container with minimal padding
+        # Main container with reduced padding
         main_frame = ttk.Frame(self.root, padding="8")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=1)
         
-        # Modern header with icon
-        header_frame = ttk.Frame(main_frame)
-        header_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 12))
+        # Title with icon - more compact
+        title_frame = ttk.Frame(main_frame)
+        title_frame.grid(row=0, column=0, columnspan=2, pady=(0, 8))
         
-        # Icon and title
-        title_container = ttk.Frame(header_frame)
-        title_container.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
+        # Try to load and display icon
         if HAS_PIL:
             try:
                 icon_paths = [
@@ -160,188 +182,170 @@ class ClientGUI:
                 
                 if icon_path:
                     img = Image.open(icon_path)
-                    img = img.resize((28, 28), Image.Resampling.LANCZOS)
+                    img = img.resize((32, 32), Image.Resampling.LANCZOS)
                     self.icon_photo = ImageTk.PhotoImage(img)
-                    icon_label = ttk.Label(title_container, image=self.icon_photo)
-                    icon_label.pack(side=tk.LEFT, padx=(0, 8))
+                    icon_label = ttk.Label(title_frame, image=self.icon_photo)
+                    icon_label.grid(row=0, column=0, padx=(0, 10))
             except Exception:
-                pass
+                pass  # Continue without icon if it fails
         
-        title_label = ttk.Label(title_container, text="YaP Mic Pass Ult - Client", 
-                               style='Title.TLabel')
-        title_label.pack(side=tk.LEFT)
+        title_label = ttk.Label(title_frame, text="YaP Mic Pass Ult - Client", 
+                               font=("Arial", 14, "bold"))
+        title_label.grid(row=0, column=1)
         
-        # Status indicator in header
-        self.header_status = ttk.Label(header_frame, text="●", font=('Segoe UI', 12),
-                                      foreground='gray')
-        self.header_status.pack(side=tk.RIGHT, padx=(10, 0))
+        # Connection frame - two columns for compact layout
+        connection_frame = ttk.LabelFrame(main_frame, text="Server Connection", padding="6")
+        connection_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
+        connection_frame.columnconfigure(1, weight=1)
+        connection_frame.columnconfigure(3, weight=1)
         
-        # Use notebook (tabs) for better organization
-        notebook = ttk.Notebook(main_frame)
-        notebook.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 8))
-        main_frame.rowconfigure(1, weight=1)
-        
-        # Connection Tab
-        connection_tab = ttk.Frame(notebook, padding="10")
-        notebook.add(connection_tab, text="Connection")
-        connection_tab.columnconfigure(1, weight=1)
-        
-        # Connection settings in compact grid
-        ttk.Label(connection_tab, text="Server Host:", width=15, anchor=tk.W).grid(row=0, column=0, sticky=tk.W, pady=4)
+        # Server host
+        ttk.Label(connection_frame, text="Host:").grid(row=0, column=0, sticky=tk.W, pady=3)
         self.host_var = tk.StringVar(value="localhost")
-        host_entry = ttk.Entry(connection_tab, textvariable=self.host_var)
-        host_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(8, 0), pady=4)
+        host_entry = ttk.Entry(connection_frame, textvariable=self.host_var, width=25)
+        host_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(5, 10), pady=3)
         
-        ttk.Label(connection_tab, text="Port:", width=15, anchor=tk.W).grid(row=1, column=0, sticky=tk.W, pady=4)
+        # Server port
+        ttk.Label(connection_frame, text="Port:").grid(row=0, column=2, sticky=tk.W, pady=3)
         self.port_var = tk.StringVar(value="5000")
-        port_entry = ttk.Entry(connection_tab, textvariable=self.port_var, width=15)
-        port_entry.grid(row=1, column=1, sticky=tk.W, padx=(8, 0), pady=4)
+        port_entry = ttk.Entry(connection_frame, textvariable=self.port_var, width=12)
+        port_entry.grid(row=0, column=3, sticky=tk.W, padx=(5, 0), pady=3)
         
-        # Audio Device Tab
-        device_tab = ttk.Frame(notebook, padding="10")
-        notebook.add(device_tab, text="Audio Device")
-        device_tab.columnconfigure(1, weight=1)
+        # Audio device frame - more compact
+        device_frame = ttk.LabelFrame(main_frame, text="Audio Device", padding="6")
+        device_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
+        device_frame.columnconfigure(1, weight=1)
         
-        ttk.Label(device_tab, text="Microphone:", width=15, anchor=tk.W).grid(row=0, column=0, sticky=tk.W, pady=4)
-        device_select_frame = ttk.Frame(device_tab)
-        device_select_frame.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(8, 0), pady=4)
+        # Device selection
+        ttk.Label(device_frame, text="Microphone:").grid(row=0, column=0, sticky=tk.W, pady=3)
+        device_select_frame = ttk.Frame(device_frame)
+        device_select_frame.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(5, 0), pady=3)
         device_select_frame.columnconfigure(0, weight=1)
         
         self.device_var = tk.StringVar()
         self.device_combo = ttk.Combobox(device_select_frame, textvariable=self.device_var, 
-                                        state="readonly")
+                                        state="readonly", width=35)
         self.device_combo.grid(row=0, column=0, sticky=(tk.W, tk.E))
         
-        refresh_button = ttk.Button(device_select_frame, text="🔄", width=3,
-                                    command=self.refresh_devices)
+        refresh_button = ttk.Button(device_select_frame, text="Refresh", 
+                                    command=self.refresh_devices, width=8)
         refresh_button.grid(row=0, column=1, padx=(5, 0))
         
-        # Audio Settings Tab
-        settings_tab = ttk.Frame(notebook, padding="10")
-        notebook.add(settings_tab, text="Audio Settings")
-        settings_tab.columnconfigure(1, weight=1)
-        
-        # Quality preset (most important, at top)
-        ttk.Label(settings_tab, text="Quality Preset:", width=18, anchor=tk.W).grid(row=0, column=0, sticky=tk.W, pady=6)
-        self.quality_var = tk.StringVar(value="balanced")
-        quality_frame = ttk.Frame(settings_tab)
-        quality_frame.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(8, 0), pady=6)
-        quality_frame.columnconfigure(0, weight=1)
-        
-        quality_combo = ttk.Combobox(quality_frame, textvariable=self.quality_var,
-                                    values=["low_latency", "balanced", "high_quality"],
-                                    state="readonly", width=25)
-        quality_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        quality_combo.bind('<<ComboboxSelected>>', self._on_quality_change)
-        
-        self.quality_info_label = ttk.Label(quality_frame, text="~30-60ms latency",
-                                           font=('Segoe UI', 8), foreground="gray")
-        self.quality_info_label.pack(side=tk.LEFT, padx=(8, 0))
+        # Audio settings frame - two column layout
+        settings_frame = ttk.LabelFrame(main_frame, text="Audio Settings", padding="6")
+        settings_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
+        settings_frame.columnconfigure(1, weight=1)
+        settings_frame.columnconfigure(3, weight=1)
         
         # Sample rate
-        ttk.Label(settings_tab, text="Sample Rate:", width=18, anchor=tk.W).grid(row=1, column=0, sticky=tk.W, pady=6)
+        ttk.Label(settings_frame, text="Sample Rate:").grid(row=0, column=0, sticky=tk.W, pady=3)
         self.sample_rate_var = tk.StringVar(value="44100")
-        sample_rate_combo = ttk.Combobox(settings_tab, textvariable=self.sample_rate_var,
+        sample_rate_combo = ttk.Combobox(settings_frame, textvariable=self.sample_rate_var,
                                         values=["8000", "16000", "22050", "44100", "48000"],
-                                        state="readonly", width=25)
-        sample_rate_combo.grid(row=1, column=1, sticky=tk.W, padx=(8, 0), pady=6)
+                                        state="readonly", width=15)
+        sample_rate_combo.grid(row=0, column=1, sticky=tk.W, padx=(5, 10), pady=3)
         
         # Channels
-        ttk.Label(settings_tab, text="Channels:", width=18, anchor=tk.W).grid(row=2, column=0, sticky=tk.W, pady=6)
+        ttk.Label(settings_frame, text="Channels:").grid(row=0, column=2, sticky=tk.W, pady=3)
         self.channels_var = tk.StringVar(value="1")
-        channels_combo = ttk.Combobox(settings_tab, textvariable=self.channels_var,
-                                     values=["1", "2"], state="readonly", width=25)
-        channels_combo.grid(row=2, column=1, sticky=tk.W, padx=(8, 0), pady=6)
+        channels_combo = ttk.Combobox(settings_frame, textvariable=self.channels_var,
+                                     values=["1", "2"], state="readonly", width=8)
+        channels_combo.grid(row=0, column=3, sticky=tk.W, padx=(5, 0), pady=3)
         
         # Chunk size
-        ttk.Label(settings_tab, text="Chunk Size:", width=18, anchor=tk.W).grid(row=3, column=0, sticky=tk.W, pady=6)
+        ttk.Label(settings_frame, text="Chunk Size:").grid(row=1, column=0, sticky=tk.W, pady=3)
         self.chunk_var = tk.StringVar(value="128")
-        chunk_entry = ttk.Entry(settings_tab, textvariable=self.chunk_var, width=25)
-        chunk_entry.grid(row=3, column=1, sticky=tk.W, padx=(8, 0), pady=6)
-        ttk.Label(settings_tab, text="(64-256, lower = less latency)", 
-                 font=('Segoe UI', 8), foreground="gray").grid(row=3, column=2, sticky=tk.W, padx=(8, 0))
+        chunk_entry = ttk.Entry(settings_frame, textvariable=self.chunk_var, width=15)
+        chunk_entry.grid(row=1, column=1, sticky=tk.W, padx=(5, 10), pady=3)
         
         # Volume control
-        ttk.Label(settings_tab, text="Volume:", width=18, anchor=tk.W).grid(row=4, column=0, sticky=tk.W, pady=6)
-        volume_frame = ttk.Frame(settings_tab)
-        volume_frame.grid(row=4, column=1, columnspan=2, sticky=(tk.W, tk.E), padx=(8, 0), pady=6)
+        ttk.Label(settings_frame, text="Volume:").grid(row=1, column=2, sticky=tk.W, pady=3)
+        volume_frame = ttk.Frame(settings_frame)
+        volume_frame.grid(row=1, column=3, sticky=(tk.W, tk.E), padx=(5, 0), pady=3)
         volume_frame.columnconfigure(0, weight=1)
         
         self.volume_var = tk.DoubleVar(value=1.0)
         volume_scale = ttk.Scale(volume_frame, from_=0.0, to=2.0, 
-                                variable=self.volume_var, orient=tk.HORIZONTAL)
-        volume_scale.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=(0, 8))
+                                variable=self.volume_var, orient=tk.HORIZONTAL,
+                                length=120)
+        volume_scale.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=(0, 5))
         
         self.volume_label = ttk.Label(volume_frame, text="100%", width=5)
-        self.volume_label.grid(row=0, column=1)
+        self.volume_label.grid(row=0, column=1, sticky=tk.W)
         
+        # Update volume label when scale changes
         self.volume_var.trace('w', self._update_volume_label)
         
-        # Control buttons (outside tabs, always visible)
-        control_frame = ttk.Frame(main_frame)
-        control_frame.grid(row=2, column=0, columnspan=2, pady=(0, 8))
+        # Control and Status frame - combined for space
+        control_status_frame = ttk.LabelFrame(main_frame, text="Control & Status", padding="6")
+        control_status_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
+        control_status_frame.columnconfigure(2, weight=1)
         
-        self.connect_button = ttk.Button(control_frame, text="▶ Connect", 
-                                        command=self.toggle_connection, width=18)
-        self.connect_button.pack(side=tk.LEFT, padx=4)
+        # Connect/Disconnect button
+        self.connect_button = ttk.Button(control_status_frame, text="▶ Connect", 
+                                        command=self.toggle_connection, width=12)
+        self.connect_button.grid(row=0, column=0, padx=(0, 15), pady=3)
         
-        # Status indicators (compact)
-        status_container = ttk.Frame(main_frame)
-        status_container.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 8))
-        status_container.columnconfigure(0, weight=1)
-        status_container.columnconfigure(2, weight=1)
+        # Connection status - inline
+        ttk.Label(control_status_frame, text="Connection:", font=("Arial", 9)).grid(row=0, column=1, sticky=tk.W, padx=(0, 5))
+        self.connection_status_label = ttk.Label(control_status_frame, text="Disconnected", 
+                                                foreground="red", font=("Arial", 9, "bold"))
+        self.connection_status_label.grid(row=0, column=2, sticky=tk.W, padx=(0, 15))
         
-        self.connection_status_label = ttk.Label(status_container, text="● Disconnected", 
-                                                foreground="red", style='Status.TLabel')
-        self.connection_status_label.grid(row=0, column=0, sticky=tk.W, padx=4)
+        # Streaming status - inline
+        ttk.Label(control_status_frame, text="Streaming:", font=("Arial", 9)).grid(row=0, column=3, sticky=tk.W, padx=(0, 5))
+        self.streaming_status_label = ttk.Label(control_status_frame, text="Not Streaming", 
+                                               foreground="gray", font=("Arial", 9))
+        self.streaming_status_label.grid(row=0, column=4, sticky=tk.W)
         
-        self.streaming_status_label = ttk.Label(status_container, text="● Not Streaming", 
-                                               foreground="gray", style='Status.TLabel')
-        self.streaming_status_label.grid(row=0, column=2, sticky=tk.W, padx=4)
-        
-        # Log frame (more compact)
+        # Log frame - reduced height
         log_frame = ttk.LabelFrame(main_frame, text="Log", padding="6")
-        log_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
+        log_frame.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 6))
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
-        main_frame.rowconfigure(4, weight=1)
+        main_frame.rowconfigure(5, weight=1)
         
-        # Log text area with modern styling
-        log_container = ttk.Frame(log_frame)
-        log_container.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        log_container.columnconfigure(0, weight=1)
-        log_container.rowconfigure(0, weight=1)
-        
-        self.log_text = scrolledtext.ScrolledText(log_container, height=8, width=70, 
-                                                  wrap=tk.WORD, state=tk.DISABLED,
-                                                  font=('Consolas', 9), relief=tk.FLAT)
+        # Log text area - smaller
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=8, width=70, 
+                                                  wrap=tk.WORD, state=tk.DISABLED, font=("Courier", 9))
         self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # Compact log controls
+        # Log controls
         log_controls = ttk.Frame(log_frame)
-        log_controls.grid(row=1, column=0, sticky=tk.E, pady=(4, 0))
+        log_controls.grid(row=1, column=0, sticky=tk.E, pady=(3, 0))
         
-        clear_button = ttk.Button(log_controls, text="Clear", width=8, command=self.clear_log)
-        clear_button.pack(side=tk.LEFT)
+        clear_button = ttk.Button(log_controls, text="Clear", command=self.clear_log, width=8)
+        clear_button.pack(side=tk.LEFT, padx=2)
     
     def refresh_devices(self):
         """Refresh list of available audio input devices."""
         try:
-            audio = pyaudio.PyAudio()
+            # Suppress ALSA warnings during device enumeration
+            old_stderr = sys.stderr
+            try:
+                with open(os.devnull, 'w') as devnull:
+                    sys.stderr = devnull
+                    audio = pyaudio.PyAudio()
+            finally:
+                sys.stderr = old_stderr
+            
             devices = []
             device_names = []
             
             for i in range(audio.get_device_count()):
-                info = audio.get_device_info_by_index(i)
-                if info['maxInputChannels'] > 0:
-                    device_name = f"{i}: {info['name']}"
-                    devices.append({
-                        'index': i,
-                        'name': info['name'],
-                        'channels': info['maxInputChannels'],
-                        'sample_rate': int(info['defaultSampleRate'])
-                    })
-                    device_names.append(device_name)
+                try:
+                    info = audio.get_device_info_by_index(i)
+                    if info['maxInputChannels'] > 0:
+                        device_name = f"{i}: {info['name']}"
+                        devices.append({
+                            'index': i,
+                            'name': info['name'],
+                            'channels': info['maxInputChannels'],
+                            'sample_rate': int(info['defaultSampleRate'])
+                        })
+                        device_names.append(device_name)
+                except:
+                    continue
             
             audio.terminate()
             
@@ -351,17 +355,24 @@ class ClientGUI:
             # Select default device if available
             if device_names:
                 try:
-                    default_audio = pyaudio.PyAudio()
-                    default_info = default_audio.get_default_input_device_info()
-                    default_index = default_info['index']
-                    default_audio.terminate()
+                    old_stderr = sys.stderr
+                    try:
+                        with open(os.devnull, 'w') as devnull:
+                            sys.stderr = devnull
+                            default_audio = pyaudio.PyAudio()
+                            default_info = default_audio.get_default_input_device_info()
+                            default_index = default_info['index']
+                            default_audio.terminate()
+                    finally:
+                        sys.stderr = old_stderr
                     
                     for i, dev in enumerate(devices):
                         if dev['index'] == default_index:
                             self.device_combo.current(i)
                             break
                 except:
-                    self.device_combo.current(0)
+                    if device_names:
+                        self.device_combo.current(0)
             
             self.log_message(f"Found {len(devices)} audio input device(s)", "info")
             
@@ -418,20 +429,10 @@ class ClientGUI:
     
     def _update_status(self, status_type, value, color=None):
         """Update status label."""
-        status_indicator = "●"
         if status_type == "connection":
-            status_text = f"{status_indicator} {value}"
-            self.connection_status_label.config(text=status_text, foreground=color or "black")
-            # Update header status
-            if color == "green":
-                self.header_status.config(text="●", foreground="green")
-            elif color == "red":
-                self.header_status.config(text="●", foreground="red")
-            elif color == "orange":
-                self.header_status.config(text="●", foreground="orange")
+            self.connection_status_label.config(text=value, foreground=color or "black")
         elif status_type == "streaming":
-            status_text = f"{status_indicator} {value}"
-            self.streaming_status_label.config(text=status_text, foreground=color or "black")
+            self.streaming_status_label.config(text=value, foreground=color or "black")
     
     def _update_volume_label(self, *args):
         """Update volume label when scale changes."""
@@ -439,42 +440,11 @@ class ClientGUI:
         percentage = int(volume * 100)
         self.volume_label.config(text=f"{percentage}%")
     
-    def _on_quality_change(self, event=None):
-        """Handle quality preset change."""
-        quality = self.quality_var.get()
-        
-        # Update chunk size and sample rate based on quality
-        if quality == 'low_latency':
-            self.chunk_var.set("128")
-            self.sample_rate_var.set("22050")
-            self.quality_info_label.config(text="~15-30ms latency")
-        elif quality == 'balanced':
-            self.chunk_var.set("128")
-            self.sample_rate_var.set("44100")
-            self.quality_info_label.config(text="~30-60ms latency")
-        elif quality == 'high_quality':
-            self.chunk_var.set("512")
-            self.sample_rate_var.set("44100")
-            self.quality_info_label.config(text="~60-100ms latency")
-    
     def _on_volume_change(self, *args):
         """Handle real-time volume changes during streaming."""
         if self.client and self.running:
             volume = self.volume_var.get()
             self.client.set_volume(volume)
-    
-    def _estimate_latency(self):
-        """Estimate latency based on current settings."""
-        if not self.client:
-            return "?"
-        
-        # Calculate latency components
-        chunk_latency = (self.client.chunk_size / self.client.sample_rate) * 1000  # ms
-        network_latency = 5 if self.client.quality == 'low_latency' else 10  # estimated
-        processing_latency = 2 if self.client.quality == 'low_latency' else 5
-        
-        total = int(chunk_latency * 2 + network_latency + processing_latency)  # *2 for client+server buffers
-        return total
     
     def clear_log(self):
         """Clear log text area."""
@@ -517,7 +487,6 @@ class ClientGUI:
             channels = int(self.channels_var.get())
             chunk_size = int(self.chunk_var.get())
             volume = float(self.volume_var.get())
-            quality = self.quality_var.get()
             
             if chunk_size < 64 or chunk_size > 2048:
                 messagebox.showerror("Error", "Chunk size must be between 64 and 2048 (lower = less latency)")
@@ -525,10 +494,6 @@ class ClientGUI:
             
             if volume < 0.0 or volume > 2.0:
                 messagebox.showerror("Error", "Volume must be between 0.0 and 2.0")
-                return
-            
-            if sample_rate not in [8000, 16000, 22050, 44100, 48000]:
-                messagebox.showerror("Error", "Sample rate must be one of: 8000, 16000, 22050, 44100, 48000")
                 return
             
             # Disable controls
@@ -542,8 +507,7 @@ class ClientGUI:
                 channels=channels,
                 chunk_size=chunk_size,
                 device_index=device_index,
-                volume=volume,
-                quality=quality
+                volume=volume
             )
             
             # Start client in thread
@@ -583,13 +547,10 @@ class ClientGUI:
                     self.log_message(f"Streaming from: {device_name}", "info")
                     self.log_message(f"Sample rate: {self.client.sample_rate} Hz, "
                                    f"Channels: {self.client.channels}", "info")
-                    self.log_message(f"Chunk size: {self.client.chunk_size} frames", "info")
-                    self.log_message(f"Quality: {self.client.quality}", "info")
                     self.log_message(f"Volume: {int(self.client.volume * 100)}%", "info")
-                    self.log_message(f"Estimated latency: ~{self._estimate_latency()}ms", "info")
                     
                     # Update button and status
-                    self.root.after(0, lambda: self.connect_button.config(text="■ Disconnect", state=tk.NORMAL))
+                    self.root.after(0, lambda: self.connect_button.config(text="Disconnect", state=tk.NORMAL))
                     self.update_status("streaming", "Streaming", "green")
                     self.log_message("Streaming audio...", "success")
                     
@@ -600,41 +561,25 @@ class ClientGUI:
                         pass
                     self.volume_trace_id = self.volume_var.trace('w', self._on_volume_change)
                     
-                    # Start streaming (this is blocking until stream ends)
-                    try:
-                        result = self.client.stream_audio()
-                        # If stream_audio returns, something went wrong (it should run indefinitely)
-                        if not result:
-                            self.log_message("Audio streaming stopped unexpectedly", "error")
-                        else:
-                            self.log_message("Audio streaming completed", "info")
-                    except Exception as e:
-                        self.log_message(f"Streaming error: {e}", "error")
-                        import traceback
-                        self.log_message(traceback.format_exc(), "error")
-                    
-                    # Update status after streaming stops
-                    self.update_status("connection", "Disconnected", "red")
-                    self.update_status("streaming", "Not Streaming", "gray")
-                    self.root.after(0, lambda: self.connect_button.config(text="▶ Connect", state=tk.NORMAL))
-                    self.running = False
+                    # Start streaming
+                    self.client.stream_audio()
                     
                 else:
                     self.log_message("Failed to send audio configuration", "error")
                     self.update_status("connection", "Disconnected", "red")
-                    self.root.after(0, lambda: self.connect_button.config(text="▶ Connect", state=tk.NORMAL))
+                    self.root.after(0, lambda: self.connect_button.config(text="Connect", state=tk.NORMAL))
                     self.running = False
             else:
                 self.log_message("Failed to connect to server", "error")
                 self.update_status("connection", "Disconnected", "red")
-                self.root.after(0, lambda: self.connect_button.config(text="▶ Connect", state=tk.NORMAL))
+                self.root.after(0, lambda: self.connect_button.config(text="Connect", state=tk.NORMAL))
                 self.running = False
                 
         except Exception as e:
             self.log_message(f"Client error: {e}", "error")
             self.update_status("connection", "Disconnected", "red")
             self.update_status("streaming", "Not Streaming", "gray")
-            self.root.after(0, lambda: self.connect_button.config(text="▶ Connect", state=tk.NORMAL))
+            self.root.after(0, lambda: self.connect_button.config(text="Connect", state=tk.NORMAL))
             self.running = False
     
     def disconnect(self):
@@ -648,7 +593,7 @@ class ClientGUI:
         
         self.update_status("connection", "Disconnected", "red")
         self.update_status("streaming", "Not Streaming", "gray")
-        self.connect_button.config(text="▶ Connect", state=tk.NORMAL)
+        self.connect_button.config(text="Connect", state=tk.NORMAL)
         self.log_message("Disconnected", "info")
     
     def setup_system_tray(self):

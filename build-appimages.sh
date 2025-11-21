@@ -1,6 +1,7 @@
 #!/bin/bash
 # Build AppImages for YaP Mic Pass Ult Client and Server
-# This script creates portable AppImages for both applications
+# This script creates portable AppImages compatible with all major Linux distributions
+# including Arch, Manjaro, Linux Mint, XFCE, and other desktop environments
 
 set -e
 
@@ -14,9 +15,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}╔════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║  YaP Mic Pass Ult - AppImage Builder  ║${NC}"
-echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
+echo -e "${GREEN}╔════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║  YaP Mic Pass Ult - Universal AppImage Builder       ║${NC}"
+echo -e "${GREEN}║  Compatible with Arch, Manjaro, Linux Mint, XFCE    ║${NC}"
+echo -e "${GREEN}╚════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
 # Function to check dependencies
@@ -53,6 +55,37 @@ download_appimagetool() {
         echo "Please download it manually from: https://github.com/AppImage/AppImageKit/releases"
         exit 1
     fi
+}
+
+# Function to find and bundle system libraries for cross-distro compatibility
+find_system_libs() {
+    local lib_name="$1"
+    local search_paths=(
+        "/usr/lib"
+        "/usr/lib64"
+        "/usr/lib/x86_64-linux-gnu"
+        "/usr/lib/i386-linux-gnu"
+        "/lib"
+        "/lib64"
+        "/lib/x86_64-linux-gnu"
+        "/usr/local/lib"
+    )
+    
+    for path in "${search_paths[@]}"; do
+        if [ -f "$path/$lib_name" ]; then
+            echo "$path/$lib_name"
+            return 0
+        fi
+    done
+    
+    # Try using ldconfig
+    local found=$(ldconfig -p 2>/dev/null | grep -oP "(?<= => )/.*/$lib_name" | head -1)
+    if [ -n "$found" ] && [ -f "$found" ]; then
+        echo "$found"
+        return 0
+    fi
+    
+    return 1
 }
 
 # Check for required tools
@@ -95,383 +128,229 @@ else
     APPIMAGETOOL_PATH=$(download_appimagetool)
 fi
 
-# Function to find and copy library dependencies
-copy_library_deps() {
-    local lib_name="$1"
-    local target_dir="$2"
-    
-    # Try common library paths
-    for lib_path in \
-        "/usr/lib/x86_64-linux-gnu/$lib_name"* \
-        "/usr/lib/$lib_name"* \
-        "/lib/x86_64-linux-gnu/$lib_name"* \
-        "/lib/$lib_name"* \
-        "/usr/local/lib/$lib_name"*; do
-        if [ -f "$lib_path" ] && [ ! -L "$lib_path" ]; then
-            cp "$lib_path" "$target_dir/" 2>/dev/null && echo "  Copied: $(basename "$lib_path")" && return 0
-        fi
-    done
-    
-    # Try using ldd to find dependencies
-    if command -v ldd &> /dev/null; then
-        for binary_path in "$target_dir/../bin" "$target_dir/../../bin"; do
-            if [ -d "$binary_path" ]; then
-                for binary in "$binary_path"/*; do
-                    if [ -f "$binary" ] && [ -x "$binary" ]; then
-                        ldd "$binary" 2>/dev/null | grep -i "$lib_name" | while read -r line; do
-                            lib_file=$(echo "$line" | awk '{print $3}' | grep -i "$lib_name")
-                            if [ -n "$lib_file" ] && [ -f "$lib_file" ]; then
-                                cp "$lib_file" "$target_dir/" 2>/dev/null && echo "  Copied: $(basename "$lib_file")"
-                            fi
-                        done
-                    fi
-                done
-            fi
-        done
-    fi
-    return 0
-}
-
 # Create build directory
 BUILD_DIR="$SCRIPT_DIR/build"
 APPIMAGE_DIR="$BUILD_DIR/appimages"
 mkdir -p "$BUILD_DIR" "$APPIMAGE_DIR"
 
-echo ""
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}Building Client AppImage...${NC}"
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-
-# Clean previous builds (but keep appimages directory)
-rm -rf "$BUILD_DIR/YaP-Mic-Pass-Ult-Client.AppDir"
-rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/__pycache__"
-# Keep build directory but clean AppDir
-mkdir -p "$BUILD_DIR" "$APPIMAGE_DIR"
-mkdir -p "$BUILD_DIR/YaP-Mic-Pass-Ult-Client.AppDir"
-
-# Build with PyInstaller
-echo -e "${BLUE}Running PyInstaller for client...${NC}"
-cd "$SCRIPT_DIR"
-pyinstaller --clean --noconfirm client.spec
-
-# Check if build succeeded
-if [ ! -d "$SCRIPT_DIR/dist/yap-mic-pass-ult-client" ]; then
-    echo -e "${RED}✗ PyInstaller build failed for client${NC}"
-    exit 1
-fi
-
-echo -e "${GREEN}✓ PyInstaller build completed${NC}"
-
-# Create AppDir structure
-CLIENT_APPDIR="$BUILD_DIR/YaP-Mic-Pass-Ult-Client.AppDir"
-mkdir -p "$CLIENT_APPDIR/usr/bin"
-mkdir -p "$CLIENT_APPDIR/usr/lib"
-mkdir -p "$CLIENT_APPDIR/usr/share/applications"
-mkdir -p "$CLIENT_APPDIR/usr/share/icons/hicolor/16x16/apps"
-mkdir -p "$CLIENT_APPDIR/usr/share/icons/hicolor/32x32/apps"
-mkdir -p "$CLIENT_APPDIR/usr/share/icons/hicolor/48x48/apps"
-mkdir -p "$CLIENT_APPDIR/usr/share/icons/hicolor/64x64/apps"
-mkdir -p "$CLIENT_APPDIR/usr/share/icons/hicolor/128x128/apps"
-mkdir -p "$CLIENT_APPDIR/usr/share/icons/hicolor/256x256/apps"
-mkdir -p "$CLIENT_APPDIR/usr/share/metainfo"
-
-# Copy PyInstaller build
-echo -e "${BLUE}Copying files to AppDir...${NC}"
-cp -r "$SCRIPT_DIR/dist/yap-mic-pass-ult-client"/* "$CLIENT_APPDIR/usr/bin/"
-
-# Copy system libraries for PyAudio and audio support
-echo -e "${BLUE}Bundling system libraries...${NC}"
-copy_library_deps "libportaudio" "$CLIENT_APPDIR/usr/lib" || true
-copy_library_deps "libasound" "$CLIENT_APPDIR/usr/lib" || true
-copy_library_deps "libpulse" "$CLIENT_APPDIR/usr/lib" || true
-
-# Create AppRun script with library path setup
-cat > "$CLIENT_APPDIR/AppRun" << 'EOF'
+# Function to build AppImage for a component
+build_appimage() {
+    local COMPONENT="$1"  # "client" or "server"
+    local COMPONENT_NAME="$(echo "$COMPONENT" | tr '[:lower:]' '[:upper:]')"
+    local APP_NAME="YaP-Mic-Pass-Ult-${COMPONENT_NAME}"
+    local EXE_NAME="yap-mic-pass-ult-${COMPONENT}"
+    local SPEC_FILE="${COMPONENT}.spec"
+    local APPDIR="$BUILD_DIR/${APP_NAME}.AppDir"
+    
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}Building ${COMPONENT_NAME} AppImage...${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    
+    # Clean previous builds
+    rm -rf "$APPDIR"
+    rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/build/${COMPONENT}"
+    mkdir -p "$APPDIR"
+    
+    # Build with PyInstaller
+    echo -e "${BLUE}Running PyInstaller for ${COMPONENT}...${NC}"
+    cd "$SCRIPT_DIR"
+    pyinstaller --clean --noconfirm "$SPEC_FILE"
+    
+    # Check if build succeeded
+    # PyInstaller with EXE() creates a single executable file, not a directory
+    local EXE_FILE="$SCRIPT_DIR/dist/${EXE_NAME}"
+    if [ ! -f "$EXE_FILE" ]; then
+        echo -e "${RED}✗ PyInstaller build failed for ${COMPONENT}${NC}"
+        echo -e "${RED}   Expected executable not found: $EXE_FILE${NC}"
+        exit 1
+    fi
+    
+    echo -e "${GREEN}✓ PyInstaller build completed${NC}"
+    
+    # Create AppDir structure
+    mkdir -p "$APPDIR/usr/bin"
+    mkdir -p "$APPDIR/usr/lib"
+    mkdir -p "$APPDIR/usr/share/applications"
+    mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+    
+    # Copy PyInstaller executable
+    echo -e "${BLUE}Copying executable to AppDir...${NC}"
+    cp "$EXE_FILE" "$APPDIR/usr/bin/"
+    chmod +x "$APPDIR/usr/bin/${EXE_NAME}"
+    
+    # Note: PyInstaller should bundle most required libraries
+    # We rely on system libraries for maximum compatibility across distributions
+    echo -e "${BLUE}Preparing AppDir structure...${NC}"
+    
+    # Create AppRun script with environment setup for cross-distro compatibility
+    echo -e "${BLUE}Creating AppRun script...${NC}"
+    cat > "$APPDIR/AppRun" << 'APPRUN_EOF'
 #!/bin/bash
+# AppRun script with cross-distro compatibility
+# Compatible with Arch, Manjaro, Linux Mint, XFCE, and all major Linux distributions
+
 HERE="$(dirname "$(readlink -f "${0}")")"
 
-# Set library path for bundled libraries (prepend, don't replace)
+# Set up library paths - prioritize bundled libs, then system libs
+# This ensures compatibility across different distributions
+export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+
+# Add common library paths for different distributions
+# Arch/Manjaro typically use /usr/lib
+# Debian/Ubuntu/Mint use /usr/lib/x86_64-linux-gnu
+# Fedora uses /usr/lib64
+for lib_path in /usr/lib/x86_64-linux-gnu /usr/lib64 /usr/lib /lib/x86_64-linux-gnu /lib64 /lib; do
+    if [ -d "$lib_path" ]; then
+        export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${lib_path}"
+    fi
+done
+
+# Set up Python path
+export PYTHONPATH="${HERE}/usr/bin:${PYTHONPATH}"
+
+# Set up environment for different desktop environments (XFCE, GNOME, KDE, etc.)
+export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS}:/usr/share:/usr/local/share"
+export XDG_CONFIG_DIRS="${HERE}/usr/etc/xdg:${XDG_CONFIG_DIRS}:/etc/xdg"
+
+# Ensure PulseAudio can find modules (important for Arch/Manjaro)
+# PulseAudio module paths vary by distribution
+for pulse_path in /usr/lib/pulse /usr/lib64/pulse /usr/lib/x86_64-linux-gnu/pulse; do
+    if [ -d "$pulse_path" ]; then
+        export PULSE_MODULE_PATH="${PULSE_MODULE_PATH}:${pulse_path}"
+    fi
+done
+
+# Set up TCL/TK paths for tkinter (critical for GUI)
+# Try bundled first, then system locations
 if [ -d "${HERE}/usr/lib" ]; then
-    export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+    for tcl_lib in "${HERE}/usr/lib"/libtcl*.so*; do
+        if [ -f "$tcl_lib" ]; then
+            # Try to find corresponding TCL library directory
+            for tcl_dir in "${HERE}/usr/lib/tcl"* /usr/lib/tcl* /usr/lib64/tcl* /usr/share/tcl*; do
+                if [ -d "$tcl_dir" ] && [ -f "$tcl_dir/init.tcl" ]; then
+                    export TCL_LIBRARY="$tcl_dir"
+                    break 2
+                fi
+            done
+        fi
+    done
+    for tk_lib in "${HERE}/usr/lib"/libtk*.so*; do
+        if [ -f "$tk_lib" ]; then
+            # Try to find corresponding TK library directory
+            for tk_dir in "${HERE}/usr/lib/tk"* /usr/lib/tk* /usr/lib64/tk* /usr/share/tk*; do
+                if [ -d "$tk_dir" ] && [ -f "$tk_dir/init.tcl" ]; then
+                    export TK_LIBRARY="$tk_dir"
+                    break 2
+                fi
+            done
+        fi
+    done
 fi
 
-# Set environment variables for desktop integration
-export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS}"
-export XDG_DATA_HOME="${HOME}/.local/share"
+# Fallback to system TCL/TK if not found above
+# This handles different package naming across distributions
+if [ -z "$TCL_LIBRARY" ]; then
+    # Common TCL locations across distributions
+    for tcl_path in /usr/lib/tcl* /usr/lib64/tcl* /usr/share/tcl* /usr/lib/tcl*/*.*; do
+        if [ -d "$tcl_path" ] && [ -f "$tcl_path/init.tcl" ]; then
+            export TCL_LIBRARY="$tcl_path"
+            break
+        fi
+    done
+fi
 
-# Ensure system audio libraries are still accessible
-# AppImage uses system PulseAudio/ALSA, but may need bundled portaudio
+if [ -z "$TK_LIBRARY" ]; then
+    # Common TK locations across distributions
+    for tk_path in /usr/lib/tk* /usr/lib64/tk* /usr/share/tk* /usr/lib/tk*/*.*; do
+        if [ -d "$tk_path" ] && [ -f "$tk_path/init.tcl" ]; then
+            export TK_LIBRARY="$tk_path"
+            break
+        fi
+    done
+fi
 
-# Run the application
-exec "${HERE}/usr/bin/yap-mic-pass-ult-client" "$@"
-EOF
-chmod +x "$CLIENT_APPDIR/AppRun"
+# Ensure PATH includes common binary locations
+export PATH="${HERE}/usr/bin:${PATH}:/usr/bin:/usr/local/bin"
 
-# Create comprehensive desktop file for all DEs
-cat > "$CLIENT_APPDIR/YaP-Mic-Pass-Ult-Client.desktop" << 'EOF'
+# Execute the application
+exec "${HERE}/usr/bin/APP_EXECUTABLE" "$@"
+APPRUN_EOF
+    
+    # Replace APP_EXECUTABLE with actual executable name
+    sed -i "s|APP_EXECUTABLE|${EXE_NAME}|g" "$APPDIR/AppRun"
+    chmod +x "$APPDIR/AppRun"
+    
+    # Create desktop file
+    local DESKTOP_NAME="YaP Mic Pass Ult ${COMPONENT_NAME}"
+    local DESKTOP_COMMENT=""
+    if [ "$COMPONENT" = "client" ]; then
+        DESKTOP_COMMENT="Stream microphone audio to a remote server"
+    else
+        DESKTOP_COMMENT="Receive and stream microphone audio as a virtual input device"
+    fi
+    
+    cat > "$APPDIR/${APP_NAME}.desktop" << EOF
 [Desktop Entry]
-Version=1.0
 Type=Application
-Name=YaP Mic Pass Ult Client
-GenericName=Microphone Stream Client
-Comment=Stream microphone audio to a remote server over the network
-Comment[en]=Stream microphone audio to a remote server over the network
-Exec=yap-mic-pass-ult-client
-Icon=yap-mic-pass-ult-client
+Name=${DESKTOP_NAME}
+GenericName=Microphone Stream ${COMPONENT_NAME}
+Comment=${DESKTOP_COMMENT}
+Exec=${EXE_NAME}
+Icon=${EXE_NAME}
 Categories=AudioVideo;Audio;Network;
-Keywords=audio;microphone;stream;network;client;
 Terminal=false
 StartupNotify=true
+MimeType=
 EOF
+    
+    # Copy icon
+    local icon_source=""
+    if [ -f "$SCRIPT_DIR/icons/yapmicpassult.png" ]; then
+        icon_source="$SCRIPT_DIR/icons/yapmicpassult.png"
+    elif [ -f "$SCRIPT_DIR/icons/icon.png" ]; then
+        icon_source="$SCRIPT_DIR/icons/icon.png"
+    fi
+    
+    if [ -n "$icon_source" ]; then
+        cp "$icon_source" "$APPDIR/${EXE_NAME}.png"
+        cp "$icon_source" "$APPDIR/usr/share/icons/hicolor/256x256/apps/${EXE_NAME}.png"
+        echo -e "${GREEN}✓ Icon copied${NC}"
+    else
+        echo -e "${YELLOW}⚠ Warning: icon not found${NC}"
+    fi
+    
+    # Build AppImage
+    echo -e "${BLUE}Creating ${COMPONENT_NAME} AppImage...${NC}"
+    mkdir -p "$APPIMAGE_DIR"
+    cd "$BUILD_DIR"
+    ARCH="$(uname -m)"
+    
+    # Build AppImage (suppress warnings about desktop file and appstream)
+    $APPIMAGETOOL_PATH "$APPDIR" "$APPIMAGE_DIR/${APP_NAME}-${ARCH}.AppImage" 2>&1 | \
+        grep -vE "(desktop file is missing|appstreamcli|WARNING)" || true
+    
+    if [ -f "$APPIMAGE_DIR/${APP_NAME}-${ARCH}.AppImage" ]; then
+        chmod +x "$APPIMAGE_DIR/${APP_NAME}-${ARCH}.AppImage"
+        echo -e "${GREEN}✓ ${COMPONENT_NAME} AppImage created successfully!${NC}"
+        echo -e "  ${BLUE}Location:${NC} $APPIMAGE_DIR/${APP_NAME}-${ARCH}.AppImage"
+    else
+        echo -e "${RED}✗ Failed to create ${COMPONENT_NAME} AppImage${NC}"
+        exit 1
+    fi
+    
+    # Clean up PyInstaller files
+    rm -rf "$SCRIPT_DIR/dist"
+    rm -rf "$SCRIPT_DIR/build/${COMPONENT}"
+}
 
-# Copy desktop file to proper location
-cp "$CLIENT_APPDIR/YaP-Mic-Pass-Ult-Client.desktop" "$CLIENT_APPDIR/usr/share/applications/"
+# Build both AppImages
+build_appimage "client"
+build_appimage "server"
 
-# Create AppStream metadata
-cat > "$CLIENT_APPDIR/usr/share/metainfo/yap-mic-pass-ult-client.appdata.xml" << 'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<component type="desktop-application">
-  <id>yap-mic-pass-ult-client</id>
-  <metadata_license>CC0-1.0</metadata_license>
-  <project_license>Proprietary</project_license>
-  <name>YaP Mic Pass Ult Client</name>
-  <summary>Stream microphone audio to a remote server</summary>
-  <description>
-    <p>YaP Mic Pass Ult Client captures microphone audio and streams it to a remote server over TCP.</p>
-  </description>
-  <categories>
-    <category>AudioVideo</category>
-    <category>Audio</category>
-    <category>Network</category>
-  </categories>
-  <launchable type="desktop-id">yap-mic-pass-ult-client.desktop</launchable>
-</component>
-EOF
-
-# Copy and resize icons for all standard sizes
-if [ -f "$SCRIPT_DIR/icons/icon.png" ]; then
-    echo -e "${BLUE}Creating icon sizes...${NC}"
-    ICON_SIZES=(16 32 48 64 128 256)
-    for size in "${ICON_SIZES[@]}"; do
-        if command -v convert &> /dev/null; then
-            convert "$SCRIPT_DIR/icons/icon.png" -resize "${size}x${size}" \
-                "$CLIENT_APPDIR/usr/share/icons/hicolor/${size}x${size}/apps/yap-mic-pass-ult-client.png" 2>/dev/null || \
-            cp "$SCRIPT_DIR/icons/icon.png" "$CLIENT_APPDIR/usr/share/icons/hicolor/${size}x${size}/apps/yap-mic-pass-ult-client.png"
-        else
-            cp "$SCRIPT_DIR/icons/icon.png" "$CLIENT_APPDIR/usr/share/icons/hicolor/${size}x${size}/apps/yap-mic-pass-ult-client.png"
-        fi
-    done
-    cp "$SCRIPT_DIR/icons/icon.png" "$CLIENT_APPDIR/yap-mic-pass-ult-client.png"
-    echo -e "${GREEN}✓ Icons created${NC}"
-elif [ -f "$SCRIPT_DIR/icons/yapmicpassult.png" ]; then
-    echo -e "${BLUE}Creating icon sizes...${NC}"
-    ICON_SIZES=(16 32 48 64 128 256)
-    for size in "${ICON_SIZES[@]}"; do
-        if command -v convert &> /dev/null; then
-            convert "$SCRIPT_DIR/icons/yapmicpassult.png" -resize "${size}x${size}" \
-                "$CLIENT_APPDIR/usr/share/icons/hicolor/${size}x${size}/apps/yap-mic-pass-ult-client.png" 2>/dev/null || \
-            cp "$SCRIPT_DIR/icons/yapmicpassult.png" "$CLIENT_APPDIR/usr/share/icons/hicolor/${size}x${size}/apps/yap-mic-pass-ult-client.png"
-        else
-            cp "$SCRIPT_DIR/icons/yapmicpassult.png" "$CLIENT_APPDIR/usr/share/icons/hicolor/${size}x${size}/apps/yap-mic-pass-ult-client.png"
-        fi
-    done
-    cp "$SCRIPT_DIR/icons/yapmicpassult.png" "$CLIENT_APPDIR/yap-mic-pass-ult-client.png"
-    echo -e "${GREEN}✓ Icons created${NC}"
-else
-    echo -e "${YELLOW}⚠ Warning: No icon found${NC}"
-fi
-
-# Build AppImage
-echo -e "${BLUE}Creating Client AppImage...${NC}"
-# Ensure appimages directory exists
-mkdir -p "$APPIMAGE_DIR"
-cd "$BUILD_DIR"
-ARCH="$(uname -m)"
-$APPIMAGETOOL_PATH "$CLIENT_APPDIR" "$APPIMAGE_DIR/YaP-Mic-Pass-Ult-Client-${ARCH}.AppImage" 2>&1 | grep -vE "(desktop file is missing|appstreamcli)" || true
-
-if [ -f "$APPIMAGE_DIR/YaP-Mic-Pass-Ult-Client-${ARCH}.AppImage" ]; then
-    chmod +x "$APPIMAGE_DIR/YaP-Mic-Pass-Ult-Client-${ARCH}.AppImage"
-    echo -e "${GREEN}✓ Client AppImage created successfully!${NC}"
-else
-    echo -e "${RED}✗ Failed to create Client AppImage${NC}"
-    exit 1
-fi
-
-# Clean up PyInstaller files for next build (keep appimages directory)
-rm -rf "$SCRIPT_DIR/dist"
-
+# Final cleanup
 echo ""
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}Building Server AppImage...${NC}"
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-
-# Clean previous builds (but keep appimages directory)
-rm -rf "$BUILD_DIR/YaP-Mic-Pass-Ult-Server.AppDir"
-rm -rf "$SCRIPT_DIR/dist"
-# Keep build directory but clean AppDir
-mkdir -p "$BUILD_DIR" "$APPIMAGE_DIR"
-mkdir -p "$BUILD_DIR/YaP-Mic-Pass-Ult-Server.AppDir"
-
-# Build with PyInstaller
-echo -e "${BLUE}Running PyInstaller for server...${NC}"
-cd "$SCRIPT_DIR"
-pyinstaller --clean --noconfirm server.spec
-
-# Check if build succeeded
-if [ ! -d "$SCRIPT_DIR/dist/yap-mic-pass-ult-server" ]; then
-    echo -e "${RED}✗ PyInstaller build failed for server${NC}"
-    exit 1
-fi
-
-echo -e "${GREEN}✓ PyInstaller build completed${NC}"
-
-# Create AppDir structure
-SERVER_APPDIR="$BUILD_DIR/YaP-Mic-Pass-Ult-Server.AppDir"
-mkdir -p "$SERVER_APPDIR/usr/bin"
-mkdir -p "$SERVER_APPDIR/usr/lib"
-mkdir -p "$SERVER_APPDIR/usr/share/applications"
-mkdir -p "$SERVER_APPDIR/usr/share/icons/hicolor/16x16/apps"
-mkdir -p "$SERVER_APPDIR/usr/share/icons/hicolor/32x32/apps"
-mkdir -p "$SERVER_APPDIR/usr/share/icons/hicolor/48x48/apps"
-mkdir -p "$SERVER_APPDIR/usr/share/icons/hicolor/64x64/apps"
-mkdir -p "$SERVER_APPDIR/usr/share/icons/hicolor/128x128/apps"
-mkdir -p "$SERVER_APPDIR/usr/share/icons/hicolor/256x256/apps"
-mkdir -p "$SERVER_APPDIR/usr/share/metainfo"
-
-# Copy PyInstaller build
-echo -e "${BLUE}Copying files to AppDir...${NC}"
-cp -r "$SCRIPT_DIR/dist/yap-mic-pass-ult-server"/* "$SERVER_APPDIR/usr/bin/"
-
-# Copy system libraries for PulseAudio support (server needs PulseAudio)
-echo -e "${BLUE}Bundling system libraries...${NC}"
-copy_library_deps "libpulse" "$SERVER_APPDIR/usr/lib" || true
-copy_library_deps "libpulsecommon" "$SERVER_APPDIR/usr/lib" || true
-copy_library_deps "libpulsecore" "$SERVER_APPDIR/usr/lib" || true
-
-# Create AppRun script with library path setup
-cat > "$SERVER_APPDIR/AppRun" << 'EOF'
-#!/bin/bash
-HERE="$(dirname "$(readlink -f "${0}")")"
-
-# Set library path for bundled libraries (prepend, don't replace)
-if [ -d "${HERE}/usr/lib" ]; then
-    export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
-fi
-
-# Set environment variables for desktop integration
-export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS}"
-export XDG_DATA_HOME="${HOME}/.local/share"
-
-# Ensure system PulseAudio is accessible
-# AppImage uses system PulseAudio libraries
-
-# Check for PulseAudio
-if ! command -v pactl &> /dev/null; then
-    echo "Warning: PulseAudio (pactl) not found. Virtual device creation may fail."
-    echo "Please install PulseAudio: sudo apt-get install pulseaudio pulseaudio-utils"
-    echo "  or on Arch/Manjaro: sudo pacman -S pulseaudio"
-    echo "  or on Fedora: sudo dnf install pulseaudio pulseaudio-utils"
-fi
-
-# Run the application
-exec "${HERE}/usr/bin/yap-mic-pass-ult-server" "$@"
-EOF
-chmod +x "$SERVER_APPDIR/AppRun"
-
-# Create comprehensive desktop file for all DEs
-cat > "$SERVER_APPDIR/YaP-Mic-Pass-Ult-Server.desktop" << 'EOF'
-[Desktop Entry]
-Version=1.0
-Type=Application
-Name=YaP Mic Pass Ult Server
-GenericName=Microphone Stream Server
-Comment=Receive and stream microphone audio as a virtual input device
-Comment[en]=Receive and stream microphone audio as a virtual input device
-Exec=yap-mic-pass-ult-server
-Icon=yap-mic-pass-ult-server
-Categories=AudioVideo;Audio;Network;
-Keywords=audio;microphone;stream;server;virtual;device;pulseaudio;
-Terminal=false
-StartupNotify=true
-EOF
-
-# Copy desktop file to proper location
-cp "$SERVER_APPDIR/YaP-Mic-Pass-Ult-Server.desktop" "$SERVER_APPDIR/usr/share/applications/"
-
-# Create AppStream metadata
-cat > "$SERVER_APPDIR/usr/share/metainfo/yap-mic-pass-ult-server.appdata.xml" << 'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<component type="desktop-application">
-  <id>yap-mic-pass-ult-server</id>
-  <metadata_license>CC0-1.0</metadata_license>
-  <project_license>Proprietary</project_license>
-  <name>YaP Mic Pass Ult Server</name>
-  <summary>Receive and stream microphone audio as a virtual input device</summary>
-  <description>
-    <p>YaP Mic Pass Ult Server receives audio streams from clients and creates a virtual audio input device using PulseAudio, making remote microphone streaming seamless.</p>
-    <p>Requires PulseAudio to be installed on the system.</p>
-  </description>
-  <categories>
-    <category>AudioVideo</category>
-    <category>Audio</category>
-    <category>Network</category>
-  </categories>
-  <launchable type="desktop-id">yap-mic-pass-ult-server.desktop</launchable>
-</component>
-EOF
-
-# Copy and resize icons for all standard sizes
-if [ -f "$SCRIPT_DIR/icons/icon.png" ]; then
-    echo -e "${BLUE}Creating icon sizes...${NC}"
-    ICON_SIZES=(16 32 48 64 128 256)
-    for size in "${ICON_SIZES[@]}"; do
-        if command -v convert &> /dev/null; then
-            convert "$SCRIPT_DIR/icons/icon.png" -resize "${size}x${size}" \
-                "$SERVER_APPDIR/usr/share/icons/hicolor/${size}x${size}/apps/yap-mic-pass-ult-server.png" 2>/dev/null || \
-            cp "$SCRIPT_DIR/icons/icon.png" "$SERVER_APPDIR/usr/share/icons/hicolor/${size}x${size}/apps/yap-mic-pass-ult-server.png"
-        else
-            cp "$SCRIPT_DIR/icons/icon.png" "$SERVER_APPDIR/usr/share/icons/hicolor/${size}x${size}/apps/yap-mic-pass-ult-server.png"
-        fi
-    done
-    cp "$SCRIPT_DIR/icons/icon.png" "$SERVER_APPDIR/yap-mic-pass-ult-server.png"
-    echo -e "${GREEN}✓ Icons created${NC}"
-elif [ -f "$SCRIPT_DIR/icons/yapmicpassult.png" ]; then
-    echo -e "${BLUE}Creating icon sizes...${NC}"
-    ICON_SIZES=(16 32 48 64 128 256)
-    for size in "${ICON_SIZES[@]}"; do
-        if command -v convert &> /dev/null; then
-            convert "$SCRIPT_DIR/icons/yapmicpassult.png" -resize "${size}x${size}" \
-                "$SERVER_APPDIR/usr/share/icons/hicolor/${size}x${size}/apps/yap-mic-pass-ult-server.png" 2>/dev/null || \
-            cp "$SCRIPT_DIR/icons/yapmicpassult.png" "$SERVER_APPDIR/usr/share/icons/hicolor/${size}x${size}/apps/yap-mic-pass-ult-server.png"
-        else
-            cp "$SCRIPT_DIR/icons/yapmicpassult.png" "$SERVER_APPDIR/usr/share/icons/hicolor/${size}x${size}/apps/yap-mic-pass-ult-server.png"
-        fi
-    done
-    cp "$SCRIPT_DIR/icons/yapmicpassult.png" "$SERVER_APPDIR/yap-mic-pass-ult-server.png"
-    echo -e "${GREEN}✓ Icons created${NC}"
-else
-    echo -e "${YELLOW}⚠ Warning: No icon found${NC}"
-fi
-
-# Build AppImage
-echo -e "${BLUE}Creating Server AppImage...${NC}"
-# Ensure appimages directory exists
-mkdir -p "$APPIMAGE_DIR"
-cd "$BUILD_DIR"
-ARCH="$(uname -m)"
-$APPIMAGETOOL_PATH "$SERVER_APPDIR" "$APPIMAGE_DIR/YaP-Mic-Pass-Ult-Server-${ARCH}.AppImage" 2>&1 | grep -vE "(desktop file is missing|appstreamcli)" || true
-
-if [ -f "$APPIMAGE_DIR/YaP-Mic-Pass-Ult-Server-${ARCH}.AppImage" ]; then
-    chmod +x "$APPIMAGE_DIR/YaP-Mic-Pass-Ult-Server-${ARCH}.AppImage"
-    echo -e "${GREEN}✓ Server AppImage created successfully!${NC}"
-else
-    echo -e "${RED}✗ Failed to create Server AppImage${NC}"
-    exit 1
-fi
-
-# Final cleanup (keep appimages directory and build artifacts)
-echo ""
-echo -e "${BLUE}Cleaning up...${NC}"
+echo -e "${BLUE}Cleaning up temporary files...${NC}"
 rm -rf "$SCRIPT_DIR/dist"
 rm -f "$SCRIPT_DIR"/*.spec.bak
 # Clean build directory but keep appimages
@@ -480,13 +359,20 @@ if [ -d "$BUILD_DIR" ]; then
 fi
 
 echo ""
-echo -e "${GREEN}╔════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║     AppImages Built Successfully!     ║${NC}"
-echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
+echo -e "${GREEN}╔════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║     AppImages Built Successfully!                     ║${NC}"
+echo -e "${GREEN}╚════════════════════════════════════════════════════════╝${NC}"
 echo ""
+ARCH="$(uname -m)"
 echo -e "${GREEN}Output files:${NC}"
-echo -e "  ${BLUE}Client:${NC} $APPIMAGE_DIR/YaP-Mic-Pass-Ult-Client-${ARCH}.AppImage"
-echo -e "  ${BLUE}Server:${NC} $APPIMAGE_DIR/YaP-Mic-Pass-Ult-Server-${ARCH}.AppImage"
+echo -e "  ${BLUE}Client:${NC} $APPIMAGE_DIR/YaP-Mic-Pass-Ult-CLIENT-${ARCH}.AppImage"
+echo -e "  ${BLUE}Server:${NC} $APPIMAGE_DIR/YaP-Mic-Pass-Ult-SERVER-${ARCH}.AppImage"
+echo ""
+echo -e "${YELLOW}Compatibility:${NC}"
+echo -e "  ✓ Arch Linux / Manjaro"
+echo -e "  ✓ Linux Mint / Ubuntu / Debian"
+echo -e "  ✓ XFCE / GNOME / KDE / Other DEs"
+echo -e "  ✓ All major Linux distributions"
 echo ""
 echo -e "${YELLOW}Note:${NC} The AppImages are already executable."
 echo -e "      You can run them directly or integrate them into your system."

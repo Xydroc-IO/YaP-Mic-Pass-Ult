@@ -34,15 +34,8 @@ class ServerGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("YaP Mic Pass Ult - Server")
-        self.root.geometry("750x600")
+        self.root.geometry("700x550")
         self.root.resizable(True, True)
-        
-        # Configure modern style
-        style = ttk.Style()
-        style.theme_use('clam')  # Modern theme
-        style.configure('Title.TLabel', font=('Segoe UI', 14, 'bold'))
-        style.configure('Status.TLabel', font=('Segoe UI', 9))
-        style.configure('Heading.TLabel', font=('Segoe UI', 10, 'bold'))
         
         # Set window icon
         self._set_window_icon()
@@ -122,22 +115,17 @@ class ServerGUI:
             pass
     
     def create_widgets(self):
-        # Main container with minimal padding
+        # Main container with reduced padding
         main_frame = ttk.Frame(self.root, padding="8")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=1)
         
-        # Modern header with icon
-        header_frame = ttk.Frame(main_frame)
-        header_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 12))
+        # Title with icon - more compact
+        title_frame = ttk.Frame(main_frame)
+        title_frame.grid(row=0, column=0, columnspan=2, pady=(0, 8))
         
-        # Icon and title
-        title_container = ttk.Frame(header_frame)
-        title_container.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
+        # Try to load and display icon
         if HAS_PIL:
             try:
                 icon_paths = [
@@ -154,105 +142,101 @@ class ServerGUI:
                 
                 if icon_path:
                     img = Image.open(icon_path)
-                    img = img.resize((28, 28), Image.Resampling.LANCZOS)
+                    img = img.resize((32, 32), Image.Resampling.LANCZOS)
                     self.icon_photo = ImageTk.PhotoImage(img)
-                    icon_label = ttk.Label(title_container, image=self.icon_photo)
-                    icon_label.pack(side=tk.LEFT, padx=(0, 8))
+                    icon_label = ttk.Label(title_frame, image=self.icon_photo)
+                    icon_label.grid(row=0, column=0, padx=(0, 10))
             except Exception:
-                pass
+                pass  # Continue without icon if it fails
         
-        title_label = ttk.Label(title_container, text="YaP Mic Pass Ult - Server", 
-                               style='Title.TLabel')
-        title_label.pack(side=tk.LEFT)
+        title_label = ttk.Label(title_frame, text="YaP Mic Pass Ult - Server", 
+                               font=("Arial", 14, "bold"))
+        title_label.grid(row=0, column=1)
         
-        # Status indicator in header
-        self.header_status = ttk.Label(header_frame, text="●", font=('Segoe UI', 12),
-                                      foreground='red')
-        self.header_status.pack(side=tk.RIGHT, padx=(10, 0))
+        # Configuration frame - two column layout
+        config_frame = ttk.LabelFrame(main_frame, text="Configuration", padding="6")
+        config_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
+        config_frame.columnconfigure(1, weight=1)
+        config_frame.columnconfigure(3, weight=1)
         
-        # Configuration tab
-        config_tab = ttk.Frame(main_frame, padding="10")
-        config_tab.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 8))
-        config_tab.columnconfigure(1, weight=1)
-        
-        # Compact configuration grid
-        ttk.Label(config_tab, text="Port:", width=18, anchor=tk.W).grid(row=0, column=0, sticky=tk.W, pady=6)
+        # Port configuration
+        ttk.Label(config_frame, text="Port:").grid(row=0, column=0, sticky=tk.W, pady=3)
         self.port_var = tk.StringVar(value="5000")
-        port_entry = ttk.Entry(config_tab, textvariable=self.port_var, width=25)
-        port_entry.grid(row=0, column=1, sticky=tk.W, padx=(8, 0), pady=6)
+        port_entry = ttk.Entry(config_frame, textvariable=self.port_var, width=12)
+        port_entry.grid(row=0, column=1, sticky=tk.W, padx=(5, 15), pady=3)
         
-        ttk.Label(config_tab, text="Device Name:", width=18, anchor=tk.W).grid(row=1, column=0, sticky=tk.W, pady=6)
+        # Virtual device name
+        ttk.Label(config_frame, text="Device Name:").grid(row=0, column=2, sticky=tk.W, pady=3)
         self.device_name_var = tk.StringVar(value="YaP-Mic-Pass-Ult")
-        device_entry = ttk.Entry(config_tab, textvariable=self.device_name_var, width=25)
-        device_entry.grid(row=1, column=1, sticky=tk.W, padx=(8, 0), pady=6)
+        device_entry = ttk.Entry(config_frame, textvariable=self.device_name_var, width=20)
+        device_entry.grid(row=0, column=3, sticky=(tk.W, tk.E), padx=(5, 0), pady=3)
         
-        # Volume control
-        ttk.Label(config_tab, text="Device Volume:", width=18, anchor=tk.W).grid(row=2, column=0, sticky=tk.W, pady=6)
-        volume_frame = ttk.Frame(config_tab)
-        volume_frame.grid(row=2, column=1, sticky=(tk.W, tk.E), padx=(8, 0), pady=6)
+        # Volume control for virtual device
+        ttk.Label(config_frame, text="Volume:").grid(row=1, column=0, sticky=tk.W, pady=3)
+        volume_frame = ttk.Frame(config_frame)
+        volume_frame.grid(row=1, column=1, columnspan=3, sticky=(tk.W, tk.E), padx=(5, 0), pady=3)
         volume_frame.columnconfigure(0, weight=1)
         
         self.device_volume_var = tk.DoubleVar(value=1.0)
         volume_scale = ttk.Scale(volume_frame, from_=0.0, to=2.0,
-                                variable=self.device_volume_var, orient=tk.HORIZONTAL)
-        volume_scale.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=(0, 8))
+                                variable=self.device_volume_var, orient=tk.HORIZONTAL,
+                                length=150)
+        volume_scale.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=(0, 5))
         
         self.device_volume_label = ttk.Label(volume_frame, text="100%", width=5)
-        self.device_volume_label.grid(row=0, column=1)
+        self.device_volume_label.grid(row=0, column=1, sticky=tk.W)
         
+        # Update volume label and apply to device
         self.device_volume_var.trace('w', self._update_device_volume)
         
-        # Control button
-        control_frame = ttk.Frame(main_frame)
-        control_frame.grid(row=2, column=0, columnspan=2, pady=(0, 8))
+        # Control and Status frame - combined
+        control_status_frame = ttk.LabelFrame(main_frame, text="Control & Status", padding="6")
+        control_status_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
+        control_status_frame.columnconfigure(2, weight=1)
+        control_status_frame.columnconfigure(4, weight=1)
+        control_status_frame.columnconfigure(6, weight=1)
         
-        self.start_stop_button = ttk.Button(control_frame, text="▶ Start Server", 
-                                           command=self.toggle_server, width=18)
-        self.start_stop_button.pack(side=tk.LEFT, padx=4)
+        # Start/Stop button
+        self.start_stop_button = ttk.Button(control_status_frame, text="▶ Start Server", 
+                                           command=self.toggle_server, width=12)
+        self.start_stop_button.grid(row=0, column=0, padx=(0, 15), pady=3)
         
-        # Status indicators (compact, side by side)
-        status_container = ttk.Frame(main_frame)
-        status_container.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 8))
-        status_container.columnconfigure(0, weight=1)
-        status_container.columnconfigure(2, weight=1)
-        status_container.columnconfigure(4, weight=1)
+        # Server status
+        ttk.Label(control_status_frame, text="Server:", font=("Arial", 9)).grid(row=0, column=1, sticky=tk.W, padx=(0, 5))
+        self.server_status_label = ttk.Label(control_status_frame, text="Stopped", 
+                                            foreground="red", font=("Arial", 9, "bold"))
+        self.server_status_label.grid(row=0, column=2, sticky=tk.W, padx=(0, 15))
         
-        self.server_status_label = ttk.Label(status_container, text="● Stopped", 
-                                            foreground="red", style='Status.TLabel')
-        self.server_status_label.grid(row=0, column=0, sticky=tk.W, padx=4)
+        # Client connection status
+        ttk.Label(control_status_frame, text="Client:", font=("Arial", 9)).grid(row=0, column=3, sticky=tk.W, padx=(0, 5))
+        self.client_status_label = ttk.Label(control_status_frame, text="Not Connected", 
+                                            foreground="gray", font=("Arial", 9))
+        self.client_status_label.grid(row=0, column=4, sticky=tk.W, padx=(0, 15))
         
-        self.client_status_label = ttk.Label(status_container, text="● Not Connected", 
-                                            foreground="gray", style='Status.TLabel')
-        self.client_status_label.grid(row=0, column=2, sticky=tk.W, padx=4)
+        # Virtual device status
+        ttk.Label(control_status_frame, text="Device:", font=("Arial", 9)).grid(row=0, column=5, sticky=tk.W, padx=(0, 5))
+        self.device_status_label = ttk.Label(control_status_frame, text="Not Created", 
+                                            foreground="gray", font=("Arial", 9))
+        self.device_status_label.grid(row=0, column=6, sticky=tk.W)
         
-        self.device_status_label = ttk.Label(status_container, text="● Not Created", 
-                                            foreground="gray", style='Status.TLabel')
-        self.device_status_label.grid(row=0, column=4, sticky=tk.W, padx=4)
-        
-        # Log frame (compact)
+        # Log frame - reduced height
         log_frame = ttk.LabelFrame(main_frame, text="Log", padding="6")
-        log_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
+        log_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 6))
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
-        main_frame.rowconfigure(4, weight=1)
+        main_frame.rowconfigure(3, weight=1)
         
-        # Log text area with modern styling
-        log_container = ttk.Frame(log_frame)
-        log_container.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        log_container.columnconfigure(0, weight=1)
-        log_container.rowconfigure(0, weight=1)
-        
-        self.log_text = scrolledtext.ScrolledText(log_container, height=10, width=70, 
-                                                  wrap=tk.WORD, state=tk.DISABLED,
-                                                  font=('Consolas', 9), relief=tk.FLAT)
+        # Log text area - smaller
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=10, width=70, 
+                                                  wrap=tk.WORD, state=tk.DISABLED, font=("Courier", 9))
         self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # Compact log controls
+        # Log controls
         log_controls = ttk.Frame(log_frame)
-        log_controls.grid(row=1, column=0, sticky=tk.E, pady=(4, 0))
+        log_controls.grid(row=1, column=0, sticky=tk.E, pady=(3, 0))
         
-        clear_button = ttk.Button(log_controls, text="Clear", width=8, command=self.clear_log)
-        clear_button.pack(side=tk.LEFT)
+        clear_button = ttk.Button(log_controls, text="Clear", command=self.clear_log, width=8)
+        clear_button.pack(side=tk.LEFT, padx=2)
     
     def log_message(self, message, level="info"):
         """Add message to log (thread-safe)."""
@@ -303,23 +287,12 @@ class ServerGUI:
     
     def _update_status(self, status_type, value, color=None):
         """Update status label."""
-        status_indicator = "●"
         if status_type == "server":
-            status_text = f"{status_indicator} {value}"
-            self.server_status_label.config(text=status_text, foreground=color or "black")
-            # Update header status
-            if color == "green":
-                self.header_status.config(text="●", foreground="green")
-            elif color == "red":
-                self.header_status.config(text="●", foreground="red")
-            elif color == "orange":
-                self.header_status.config(text="●", foreground="orange")
+            self.server_status_label.config(text=value, foreground=color or "black")
         elif status_type == "client":
-            status_text = f"{status_indicator} {value}"
-            self.client_status_label.config(text=status_text, foreground=color or "black")
+            self.client_status_label.config(text=value, foreground=color or "black")
         elif status_type == "device":
-            status_text = f"{status_indicator} {value}"
-            self.device_status_label.config(text=status_text, foreground=color or "black")
+            self.device_status_label.config(text=value, foreground=color or "black")
     
     def _update_device_volume(self, *args):
         """Update virtual device volume when scale changes."""
@@ -380,7 +353,6 @@ class ServerGUI:
             
             self.log_message("Starting server...", "info")
             self.update_status("server", "Starting...", "orange")
-            self.start_stop_button.config(text="⏸ Starting...", state=tk.DISABLED)
             
         except ValueError:
             messagebox.showerror("Error", "Port must be a number")
@@ -410,13 +382,13 @@ class ServerGUI:
                     self.update_status("device", "Failed", "red")
                     self.log_message("Failed to create virtual device", "error")
                     self.running = False
-                    self.root.after(0, lambda: self.start_stop_button.config(text="▶ Start Server", state=tk.NORMAL))
+                    self.root.after(0, lambda: self.start_stop_button.config(text="Start Server", state=tk.NORMAL))
                     return
             
             if self.server.start_server():
                 self.update_status("server", "Running", "green")
                 self.log_message(f"Server listening on port {self.server.port}", "success")
-                self.root.after(0, lambda: self.start_stop_button.config(text="■ Stop Server", state=tk.NORMAL))
+                self.root.after(0, lambda: self.start_stop_button.config(text="Stop Server", state=tk.NORMAL))
                 
                 # Now handle connections
                 while self.running and self.server.running:
@@ -425,33 +397,17 @@ class ServerGUI:
                             self.update_status("client", "Connected", "green")
                             self.log_message("Client connected", "success")
                             
-                            # Receive and validate config
                             if self.server.receive_audio_config():
                                 self.log_message("Audio configuration received", "info")
                                 self.log_message(f"  Sample rate: {self.server.sample_rate} Hz", "info")
                                 self.log_message(f"  Channels: {self.server.channels}", "info")
-                                self.log_message(f"  Chunk size: {self.server.chunk_size}", "info")
-                                self.log_message(f"  Quality: {self.server.quality}", "info")
                                 
                                 # Stream audio
                                 self._stream_audio()
-                            else:
-                                # Config reception failed
-                                self.log_message("Failed to receive audio configuration", "error")
-                                self.update_status("client", "Disconnected", "red")
-                                if self.server.client_socket:
-                                    try:
-                                        self.server.client_socket.close()
-                                    except:
-                                        pass
-                                    self.server.client_socket = None
                             
-                            # Close connection if still open
+                            # Close connection
                             if self.server.client_socket:
-                                try:
-                                    self.server.client_socket.close()
-                                except:
-                                    pass
+                                self.server.client_socket.close()
                                 self.server.client_socket = None
                             
                             self.update_status("client", "Not Connected", "gray")
@@ -459,10 +415,7 @@ class ServerGUI:
                             
                             # Reset pipe for next connection
                             if self.server.pipe_file:
-                                try:
-                                    self.server.pipe_file.close()
-                                except:
-                                    pass
+                                self.server.pipe_file.close()
                                 self.server.pipe_file = None
                             
                             # Recreate pipe for next connection
@@ -473,14 +426,9 @@ class ServerGUI:
                                     pass
                             
                             self.log_message("Waiting for next client connection...", "info")
-                    except socket.timeout:
-                        # Timeout is expected when checking for connections
-                        continue
                     except Exception as e:
                         if self.running:
                             self.log_message(f"Connection error: {e}", "error")
-                            import traceback
-                            self.log_message(traceback.format_exc(), "error")
                         break
             else:
                 self.log_message("Failed to start server", "error")
@@ -497,114 +445,41 @@ class ServerGUI:
     def _stream_audio(self):
         """Stream audio from client."""
         import threading
-        import time
         
-        # Start the audio writer thread (this handles writing to the pipe)
         writer_thread = threading.Thread(target=self.server.audio_writer_thread, daemon=True)
         writer_thread.start()
         
-        # Give the writer thread a moment to open the pipe
-        time.sleep(0.1)
-        
         self.log_message("Streaming audio...", "info")
-        self.log_message("Waiting for application to connect to virtual device...", "info")
-        
-        # Set socket timeout for reliable data reception
-        self.server.client_socket.settimeout(0.1)
         
         try:
             while self.running and self.server.running:
                 try:
-                    # Calculate expected data size
                     data_size = self.server.chunk_size * self.server.channels * 2
+                    data = self.server.client_socket.recv(data_size)
                     
-                    # Receive complete frame (same logic as server.py)
-                    data = b''
-                    remaining = data_size
-                    
-                    while remaining > 0:
-                        try:
-                            chunk = self.server.client_socket.recv(remaining)
-                            if not chunk:
-                                if len(data) == 0:
-                                    self.log_message("Client disconnected (no data received)", "info")
-                                    break
-                                # Partial data - pad with silence
-                                padding = b'\x00' * remaining
-                                data = data + padding
-                                break
-                            data += chunk
-                            remaining -= len(chunk)
-                        except socket.timeout:
-                            # Timeout is normal - continue waiting for data
-                            if not self.running or not self.server.running:
-                                break
-                            continue
-                    
-                    if not data or len(data) == 0:
+                    if not data:
                         break
                     
-                    # Ensure we have exactly the expected size
-                    if len(data) < data_size:
-                        # Pad with silence if incomplete
-                        padding = b'\x00' * (data_size - len(data))
-                        data = data + padding
-                    elif len(data) > data_size:
-                        # Truncate if oversized
-                        data = data[:data_size]
-                    
-                    # Queue audio for writing to pipe
                     try:
                         self.server.audio_queue.put_nowait(data)
                     except queue.Full:
-                        # Drop old frames to prevent latency buildup
-                        dropped = 0
-                        min_buffer = 2 if self.server.quality == 'low_latency' else 3
-                        max_drop = max(1, self.server.audio_queue.qsize() - min_buffer)
-                        
-                        while dropped < max_drop:
-                            try:
-                                _ = self.server.audio_queue.get_nowait()
-                                dropped += 1
-                            except queue.Empty:
-                                break
-                        
-                        # Add new frame
                         try:
+                            self.server.audio_queue.get_nowait()
                             self.server.audio_queue.put_nowait(data)
-                        except queue.Full:
-                            # If still full, drop one more and add
-                            try:
-                                _ = self.server.audio_queue.get_nowait()
-                                self.server.audio_queue.put_nowait(data)
-                            except queue.Empty:
-                                pass
+                        except queue.Empty:
+                            pass
                     
-                except socket.timeout:
-                    # Timeout is expected - continue loop
-                    if not self.running or not self.server.running:
-                        break
-                    continue
                 except socket.error as e:
-                    if self.running and self.server.running:
-                        self.log_message(f"Connection error: {e}", "error")
+                    self.log_message(f"Connection error: {e}", "error")
                     break
                 except Exception as e:
-                    if self.running and self.server.running:
-                        self.log_message(f"Streaming error: {e}", "error")
-                        import traceback
-                        self.log_message(traceback.format_exc(), "error")
+                    self.log_message(f"Streaming error: {e}", "error")
                     break
         
         except Exception as e:
-            if self.running and self.server.running:
-                self.log_message(f"Error in audio stream: {e}", "error")
-                import traceback
-                self.log_message(traceback.format_exc(), "error")
+            self.log_message(f"Error in audio stream: {e}", "error")
         finally:
-            # Don't set server.running = False here - that stops the whole server
-            # Just wait for writer thread to finish
-            self.log_message("Audio streaming stopped", "info")
+            self.server.running = False
             writer_thread.join(timeout=3)
     
     def stop_server(self):
@@ -620,7 +495,7 @@ class ServerGUI:
         self.update_status("server", "Stopped", "red")
         self.update_status("client", "Not Connected", "gray")
         self.update_status("device", "Not Created", "gray")
-        self.root.after(0, lambda: self.start_stop_button.config(text="▶ Start Server", state=tk.NORMAL))
+        self.root.after(0, lambda: self.start_stop_button.config(text="Start Server", state=tk.NORMAL))
         self.log_message("Server stopped", "info")
     
     def setup_system_tray(self):

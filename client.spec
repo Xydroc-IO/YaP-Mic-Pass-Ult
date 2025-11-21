@@ -1,70 +1,35 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-import os
-import sys
-
 block_cipher = None
 
-# Get the base directory (where the spec file is located)
-# In PyInstaller, SPEC variable contains the path to this spec file
-basedir = os.path.dirname(os.path.abspath(SPEC))
-
-# Define data files
-datas = [
-    (os.path.join(basedir, 'client', 'client.py'), 'client'),
-    (os.path.join(basedir, 'icons', 'icon.png'), 'icons'),
-]
-
-# Find and include audio libraries
-binaries = []
-try:
-    import pyaudio
-    # PyAudio may have platform-specific binaries
-    pyaudio_path = os.path.dirname(pyaudio.__file__) if hasattr(pyaudio, '__file__') else None
-    if pyaudio_path:
-        # Look for _portaudio shared library
-        for root, dirs, files in os.walk(pyaudio_path):
-            for file in files:
-                if '_portaudio' in file and (file.endswith('.so') or file.endswith('.dylib') or file.endswith('.dll')):
-                    binaries.append((os.path.join(root, file), '.'))
-except:
-    pass
-
 a = Analysis(
-    [os.path.join(basedir, 'client', 'client_gui.py')],
-    pathex=[basedir],
-    binaries=binaries,
-    datas=datas,
+    ['client/client_gui.py'],
+    pathex=[],
+    binaries=[],
+    datas=[
+        ('icons', 'icons'),
+        ('client/client.py', 'client'),
+    ],
     hiddenimports=[
         'tkinter',
         'tkinter.ttk',
         'tkinter.scrolledtext',
         'tkinter.messagebox',
-        'tkinter.filedialog',
-        'tkinter.font',
+        'pyaudio',
         'PIL',
         'PIL.Image',
         'PIL.ImageTk',
-        'PIL._tkinter_finder',
         'pystray',
-        'pystray._base',
-        'pystray._win32',
-        'pystray._darwin',
-        'pystray._xorg',
-        'pyaudio',
         'numpy',
-        'numpy.core',
-        'numpy.core._multiarray_umath',
-        'queue',
-        'threading',
         'struct',
         'socket',
-        'signal',
+        'threading',
+        'queue',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['matplotlib', 'scipy', 'pandas'],
+    excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -76,29 +41,21 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
     [],
-    exclude_binaries=True,
     name='yap-mic-pass-ult-client',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    console=False,  # Windowed mode
+    upx=False,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
 )
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='yap-mic-pass-ult-client',
-)
-
