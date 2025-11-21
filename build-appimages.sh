@@ -158,11 +158,12 @@ build_appimage() {
     pyinstaller --clean --noconfirm "$SPEC_FILE"
     
     # Check if build succeeded
-    # PyInstaller with EXE() creates a single executable file, not a directory
-    local EXE_FILE="$SCRIPT_DIR/dist/${EXE_NAME}"
-    if [ ! -f "$EXE_FILE" ]; then
+    # PyInstaller with COLLECT() creates a directory structure (faster for AppImages)
+    local DIST_DIR="$SCRIPT_DIR/dist/${EXE_NAME}"
+    local EXE_FILE="$DIST_DIR/${EXE_NAME}"
+    if [ ! -d "$DIST_DIR" ] || [ ! -f "$EXE_FILE" ]; then
         echo -e "${RED}✗ PyInstaller build failed for ${COMPONENT}${NC}"
-        echo -e "${RED}   Expected executable not found: $EXE_FILE${NC}"
+        echo -e "${RED}   Expected directory not found: $DIST_DIR${NC}"
         exit 1
     fi
     
@@ -174,107 +175,63 @@ build_appimage() {
     mkdir -p "$APPDIR/usr/share/applications"
     mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
     
-    # Copy PyInstaller executable
-    echo -e "${BLUE}Copying executable to AppDir...${NC}"
-    cp "$EXE_FILE" "$APPDIR/usr/bin/"
+    # Copy entire PyInstaller build directory (much faster - no extraction needed)
+    echo -e "${BLUE}Copying files to AppDir (optimized for speed)...${NC}"
+    cp -r "$DIST_DIR"/* "$APPDIR/usr/bin/"
     chmod +x "$APPDIR/usr/bin/${EXE_NAME}"
     
     # Note: PyInstaller should bundle most required libraries
     # We rely on system libraries for maximum compatibility across distributions
     echo -e "${BLUE}Preparing AppDir structure...${NC}"
     
-    # Create AppRun script with environment setup for cross-distro compatibility
-    echo -e "${BLUE}Creating AppRun script...${NC}"
+    # Create optimized AppRun script for fast startup
+    echo -e "${BLUE}Creating optimized AppRun script...${NC}"
     cat > "$APPDIR/AppRun" << 'APPRUN_EOF'
 #!/bin/bash
-# AppRun script with cross-distro compatibility
+# Optimized AppRun script with cross-distro compatibility
 # Compatible with Arch, Manjaro, Linux Mint, XFCE, and all major Linux distributions
 
 HERE="$(dirname "$(readlink -f "${0}")")"
+BIN_DIR="${HERE}/usr/bin"
 
-# Set up library paths - prioritize bundled libs, then system libs
-# This ensures compatibility across different distributions
-export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+# Fast path setup - only set what's necessary
+export LD_LIBRARY_PATH="${BIN_DIR}:${LD_LIBRARY_PATH}"
 
-# Add common library paths for different distributions
-# Arch/Manjaro typically use /usr/lib
-# Debian/Ubuntu/Mint use /usr/lib/x86_64-linux-gnu
-# Fedora uses /usr/lib64
-for lib_path in /usr/lib/x86_64-linux-gnu /usr/lib64 /usr/lib /lib/x86_64-linux-gnu /lib64 /lib; do
-    if [ -d "$lib_path" ]; then
-        export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${lib_path}"
-    fi
-done
+# Add system library paths (cached check for speed)
+[ -d /usr/lib/x86_64-linux-gnu ] && export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/usr/lib/x86_64-linux-gnu"
+[ -d /usr/lib64 ] && export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/usr/lib64"
+[ -d /usr/lib ] && export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/usr/lib"
 
-# Set up Python path
-export PYTHONPATH="${HERE}/usr/bin:${PYTHONPATH}"
+# Python path (PyInstaller handles most of this)
+export PYTHONPATH="${BIN_DIR}:${PYTHONPATH}"
 
-# Set up environment for different desktop environments (XFCE, GNOME, KDE, etc.)
-export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS}:/usr/share:/usr/local/share"
-export XDG_CONFIG_DIRS="${HERE}/usr/etc/xdg:${XDG_CONFIG_DIRS}:/etc/xdg"
+# Desktop environment setup (minimal)
+export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS:-/usr/share}"
 
-# Ensure PulseAudio can find modules (important for Arch/Manjaro)
-# PulseAudio module paths vary by distribution
-for pulse_path in /usr/lib/pulse /usr/lib64/pulse /usr/lib/x86_64-linux-gnu/pulse; do
-    if [ -d "$pulse_path" ]; then
-        export PULSE_MODULE_PATH="${PULSE_MODULE_PATH}:${pulse_path}"
-    fi
-done
-
-# Set up TCL/TK paths for tkinter (critical for GUI)
-# Try bundled first, then system locations
-if [ -d "${HERE}/usr/lib" ]; then
-    for tcl_lib in "${HERE}/usr/lib"/libtcl*.so*; do
-        if [ -f "$tcl_lib" ]; then
-            # Try to find corresponding TCL library directory
-            for tcl_dir in "${HERE}/usr/lib/tcl"* /usr/lib/tcl* /usr/lib64/tcl* /usr/share/tcl*; do
-                if [ -d "$tcl_dir" ] && [ -f "$tcl_dir/init.tcl" ]; then
-                    export TCL_LIBRARY="$tcl_dir"
-                    break 2
-                fi
-            done
-        fi
-    done
-    for tk_lib in "${HERE}/usr/lib"/libtk*.so*; do
-        if [ -f "$tk_lib" ]; then
-            # Try to find corresponding TK library directory
-            for tk_dir in "${HERE}/usr/lib/tk"* /usr/lib/tk* /usr/lib64/tk* /usr/share/tk*; do
-                if [ -d "$tk_dir" ] && [ -f "$tk_dir/init.tcl" ]; then
-                    export TK_LIBRARY="$tk_dir"
-                    break 2
-                fi
-            done
-        fi
-    done
+# PulseAudio module path (only if needed)
+if [ -d /usr/lib/pulse ]; then
+    export PULSE_MODULE_PATH="${PULSE_MODULE_PATH:+${PULSE_MODULE_PATH}:}/usr/lib/pulse"
+fi
+if [ -d /usr/lib64/pulse ]; then
+    export PULSE_MODULE_PATH="${PULSE_MODULE_PATH:+${PULSE_MODULE_PATH}:}/usr/lib64/pulse"
 fi
 
-# Fallback to system TCL/TK if not found above
-# This handles different package naming across distributions
+# TCL/TK setup (optimized - only check if not already set)
 if [ -z "$TCL_LIBRARY" ]; then
-    # Common TCL locations across distributions
-    for tcl_path in /usr/lib/tcl* /usr/lib64/tcl* /usr/share/tcl* /usr/lib/tcl*/*.*; do
-        if [ -d "$tcl_path" ] && [ -f "$tcl_path/init.tcl" ]; then
-            export TCL_LIBRARY="$tcl_path"
-            break
-        fi
+    # Quick check common locations
+    for tcl_path in /usr/lib/tcl* /usr/lib64/tcl*; do
+        [ -d "$tcl_path" ] && [ -f "$tcl_path/init.tcl" ] && export TCL_LIBRARY="$tcl_path" && break
     done
 fi
 
 if [ -z "$TK_LIBRARY" ]; then
-    # Common TK locations across distributions
-    for tk_path in /usr/lib/tk* /usr/lib64/tk* /usr/share/tk* /usr/lib/tk*/*.*; do
-        if [ -d "$tk_path" ] && [ -f "$tk_path/init.tcl" ]; then
-            export TK_LIBRARY="$tk_path"
-            break
-        fi
+    for tk_path in /usr/lib/tk* /usr/lib64/tk*; do
+        [ -d "$tk_path" ] && [ -f "$tk_path/init.tcl" ] && export TK_LIBRARY="$tk_path" && break
     done
 fi
 
-# Ensure PATH includes common binary locations
-export PATH="${HERE}/usr/bin:${PATH}:/usr/bin:/usr/local/bin"
-
-# Execute the application
-exec "${HERE}/usr/bin/APP_EXECUTABLE" "$@"
+# Execute the application (direct path - fastest)
+exec "${BIN_DIR}/APP_EXECUTABLE" "$@"
 APPRUN_EOF
     
     # Replace APP_EXECUTABLE with actual executable name
