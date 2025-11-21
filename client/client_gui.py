@@ -600,8 +600,24 @@ class ClientGUI:
                         pass
                     self.volume_trace_id = self.volume_var.trace('w', self._on_volume_change)
                     
-                    # Start streaming
-                    self.client.stream_audio()
+                    # Start streaming (this is blocking until stream ends)
+                    try:
+                        result = self.client.stream_audio()
+                        # If stream_audio returns, something went wrong (it should run indefinitely)
+                        if not result:
+                            self.log_message("Audio streaming stopped unexpectedly", "error")
+                        else:
+                            self.log_message("Audio streaming completed", "info")
+                    except Exception as e:
+                        self.log_message(f"Streaming error: {e}", "error")
+                        import traceback
+                        self.log_message(traceback.format_exc(), "error")
+                    
+                    # Update status after streaming stops
+                    self.update_status("connection", "Disconnected", "red")
+                    self.update_status("streaming", "Not Streaming", "gray")
+                    self.root.after(0, lambda: self.connect_button.config(text="▶ Connect", state=tk.NORMAL))
+                    self.running = False
                     
                 else:
                     self.log_message("Failed to send audio configuration", "error")

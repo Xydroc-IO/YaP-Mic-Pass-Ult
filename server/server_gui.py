@@ -497,41 +497,114 @@ class ServerGUI:
     def _stream_audio(self):
         """Stream audio from client."""
         import threading
+        import time
         
+        # Start the audio writer thread (this handles writing to the pipe)
         writer_thread = threading.Thread(target=self.server.audio_writer_thread, daemon=True)
         writer_thread.start()
         
+        # Give the writer thread a moment to open the pipe
+        time.sleep(0.1)
+        
         self.log_message("Streaming audio...", "info")
+        self.log_message("Waiting for application to connect to virtual device...", "info")
+        
+        # Set socket timeout for reliable data reception
+        self.server.client_socket.settimeout(0.1)
         
         try:
             while self.running and self.server.running:
                 try:
+                    # Calculate expected data size
                     data_size = self.server.chunk_size * self.server.channels * 2
-                    data = self.server.client_socket.recv(data_size)
                     
-                    if not data:
+                    # Receive complete frame (same logic as server.py)
+                    data = b''
+                    remaining = data_size
+                    
+                    while remaining > 0:
+                        try:
+                            chunk = self.server.client_socket.recv(remaining)
+                            if not chunk:
+                                if len(data) == 0:
+                                    self.log_message("Client disconnected (no data received)", "info")
+                                    break
+                                # Partial data - pad with silence
+                                padding = b'\x00' * remaining
+                                data = data + padding
+                                break
+                            data += chunk
+                            remaining -= len(chunk)
+                        except socket.timeout:
+                            # Timeout is normal - continue waiting for data
+                            if not self.running or not self.server.running:
+                                break
+                            continue
+                    
+                    if not data or len(data) == 0:
                         break
                     
+                    # Ensure we have exactly the expected size
+                    if len(data) < data_size:
+                        # Pad with silence if incomplete
+                        padding = b'\x00' * (data_size - len(data))
+                        data = data + padding
+                    elif len(data) > data_size:
+                        # Truncate if oversized
+                        data = data[:data_size]
+                    
+                    # Queue audio for writing to pipe
                     try:
                         self.server.audio_queue.put_nowait(data)
                     except queue.Full:
+                        # Drop old frames to prevent latency buildup
+                        dropped = 0
+                        min_buffer = 2 if self.server.quality == 'low_latency' else 3
+                        max_drop = max(1, self.server.audio_queue.qsize() - min_buffer)
+                        
+                        while dropped < max_drop:
+                            try:
+                                _ = self.server.audio_queue.get_nowait()
+                                dropped += 1
+                            except queue.Empty:
+                                break
+                        
+                        # Add new frame
                         try:
-                            self.server.audio_queue.get_nowait()
                             self.server.audio_queue.put_nowait(data)
-                        except queue.Empty:
-                            pass
+                        except queue.Full:
+                            # If still full, drop one more and add
+                            try:
+                                _ = self.server.audio_queue.get_nowait()
+                                self.server.audio_queue.put_nowait(data)
+                            except queue.Empty:
+                                pass
                     
+                except socket.timeout:
+                    # Timeout is expected - continue loop
+                    if not self.running or not self.server.running:
+                        break
+                    continue
                 except socket.error as e:
-                    self.log_message(f"Connection error: {e}", "error")
+                    if self.running and self.server.running:
+                        self.log_message(f"Connection error: {e}", "error")
                     break
                 except Exception as e:
-                    self.log_message(f"Streaming error: {e}", "error")
+                    if self.running and self.server.running:
+                        self.log_message(f"Streaming error: {e}", "error")
+                        import traceback
+                        self.log_message(traceback.format_exc(), "error")
                     break
         
         except Exception as e:
-            self.log_message(f"Error in audio stream: {e}", "error")
+            if self.running and self.server.running:
+                self.log_message(f"Error in audio stream: {e}", "error")
+                import traceback
+                self.log_message(traceback.format_exc(), "error")
         finally:
-            self.server.running = False
+            # Don't set server.running = False here - that stops the whole server
+            # Just wait for writer thread to finish
+            self.log_message("Audio streaming stopped", "info")
             writer_thread.join(timeout=3)
     
     def stop_server(self):

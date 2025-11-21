@@ -146,8 +146,11 @@ class MicStreamClient:
             try:
                 bytes_sent = self.socket.sendall(config_str.encode('utf-8'))
                 print(f"Audio configuration sent: {config_str.strip()}")
-                # Remove timeout after sending
+                # Remove timeout after sending (use blocking mode for streaming)
                 self.socket.settimeout(None)
+                # Ensure socket is ready for streaming
+                self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                print("Socket configured for streaming")
                 return True
             except socket.timeout:
                 print("Error: Timeout sending audio configuration")
@@ -170,6 +173,13 @@ class MicStreamClient:
             # Use smallest possible buffer for lowest latency
             frames_per_buffer = min(self.chunk_size, 64)  # Cap at 64 for ultra-low latency
             
+            print(f"Opening audio stream...")
+            print(f"  Device index: {self.device_index}")
+            print(f"  Sample rate: {self.sample_rate} Hz")
+            print(f"  Channels: {self.channels}")
+            print(f"  Chunk size: {self.chunk_size} frames")
+            print(f"  Frames per buffer: {frames_per_buffer}")
+            
             self.stream = self.audio.open(
                 format=pyaudio.paInt16,
                 channels=self.channels,
@@ -178,12 +188,12 @@ class MicStreamClient:
                 input_device_index=self.device_index,
                 frames_per_buffer=frames_per_buffer,
                 stream_callback=None,
-                start=False,
-                input_latency=0.0  # Request minimum latency
+                start=False
             )
             
             # Start stream immediately to minimize initial latency
             self.stream.start_stream()
+            print(f"Audio stream started successfully")
             
             device_info = self.audio.get_device_info_by_index(
                 self.device_index if self.device_index is not None 
@@ -199,13 +209,20 @@ class MicStreamClient:
             frame_count = 0
             expected_size = self.chunk_size * self.channels * 2  # Bytes per chunk
             
+            print(f"Expected audio frame size: {expected_size} bytes")
+            
             while self.running:
                 try:
                     # Read audio data (must be complete frame)
                     data = self.stream.read(self.chunk_size, exception_on_overflow=False)
                     
+                    if not data:
+                        print("Warning: No audio data read from stream")
+                        continue
+                    
                     # Validate audio data size
                     if len(data) != expected_size:
+                        print(f"Warning: Audio frame size mismatch. Expected {expected_size}, got {len(data)}")
                         # If partial read, pad with silence to maintain audio continuity
                         if len(data) < expected_size:
                             padding = b'\x00' * (expected_size - len(data))
@@ -232,27 +249,47 @@ class MicStreamClient:
                     try:
                         # Use sendall to ensure all data is sent (prevents choppy audio)
                         self.socket.sendall(data)
+                        frame_count += 1
+                        
+                        # Debug output every 100 frames
+                        if frame_count % 100 == 0:
+                            print(f"Sent {frame_count} audio frames...")
+                            
                     except socket.error as e:
                         # If send fails, break to handle disconnection
-                        print(f"\nConnection lost: {e}")
+                        print(f"\nConnection lost while sending: {e}")
+                        import traceback
+                        traceback.print_exc()
                         break
                     
-                    frame_count += 1
-                    
+                except OSError as e:
+                    # Audio device error
+                    print(f"\nAudio device error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    break
                 except socket.error as e:
                     print(f"\nConnection lost: {e}")
+                    import traceback
+                    traceback.print_exc()
                     break
                 except Exception as e:
                     print(f"\nError streaming audio: {e}")
+                    import traceback
+                    traceback.print_exc()
                     break
                     
         except OSError as e:
             print(f"Error opening audio device: {e}")
             if "No default input device" in str(e):
                 print("Please specify an audio input device using --list and --device options.")
+            import traceback
+            traceback.print_exc()
             return False
         except Exception as e:
             print(f"Error initializing audio stream: {e}")
+            import traceback
+            traceback.print_exc()
             return False
         finally:
             self.cleanup()

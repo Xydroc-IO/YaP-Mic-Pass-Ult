@@ -494,11 +494,22 @@ class MicStreamServer:
             # Open the pipe for writing (this will block until something reads from it)
             print(f"Opening pipe for writing: {self.pipe_path}")
             print("Waiting for application to connect to virtual device...")
+            print("Note: The pipe will block until an application selects this virtual device as input.")
             
             # Open pipe with minimal buffering (small buffer for smooth audio)
             # buffering=0 causes issues, use small buffer instead
-            self.pipe_file = open(self.pipe_path, 'wb', buffering=4096)
-            print("Pipe opened successfully. Streaming audio...")
+            try:
+                self.pipe_file = open(self.pipe_path, 'wb', buffering=4096)
+                print("Pipe opened successfully. Streaming audio...")
+            except IOError as e:
+                print(f"Error: Could not open pipe for writing: {e}")
+                print("This might happen if the pipe doesn't exist or there's a permission issue.")
+                return
+            except Exception as e:
+                print(f"Error opening pipe: {e}")
+                import traceback
+                traceback.print_exc()
+                return
             
             while self.running or not self.audio_queue.empty():
                 try:
@@ -592,7 +603,7 @@ class MicStreamServer:
                             chunk = self.client_socket.recv(remaining)
                             if not chunk:
                                 if len(data) == 0:
-                                    print("\nClient disconnected.")
+                                    print("\nClient disconnected (no data received).")
                                     break
                                 # Partial data - pad with silence to prevent audio glitches
                                 padding = b'\x00' * remaining
@@ -602,6 +613,7 @@ class MicStreamServer:
                             remaining -= len(chunk)
                         
                         if not data or len(data) == 0:
+                            print("\nClient disconnected (empty data).")
                             break
                         
                         # Ensure we have exactly the expected size (critical for smooth audio)
@@ -615,9 +627,17 @@ class MicStreamServer:
                             
                     except socket.timeout:
                         # Timeout - continue but don't skip frames (maintains audio continuity)
+                        # This is normal if client isn't sending fast enough
                         continue
                     except socket.error as e:
-                        print(f"\nConnection error: {e}")
+                        print(f"\nConnection error receiving audio: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        break
+                    except Exception as e:
+                        print(f"\nUnexpected error receiving audio: {e}")
+                        import traceback
+                        traceback.print_exc()
                         break
                     
                     # Validate audio data size before queuing
