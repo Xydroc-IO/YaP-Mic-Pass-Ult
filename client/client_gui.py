@@ -69,17 +69,34 @@ class ClientGUI:
         if HAS_PYSTRAY:
             self.setup_system_tray()
         
-        # Handle window close
+        # Handle window close and minimize events
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        # Also intercept minimize event (when minimize button is clicked)
+        if HAS_PYSTRAY:
+            # Handle iconify event (minimize button clicked)
+            self.root.bind('<Map>', self.on_window_map)
+            # Override the iconify behavior
+            self.root.bind_class('Tk', '<Unmap>', self.on_window_unmap)
+            
+            # Also handle when window is iconified via button
+            def on_iconify(event=None):
+                if self.root.state() == 'iconic':
+                    if not self.hidden_to_tray:
+                        self.root.after(50, self.hide_to_tray)
+                return "break" if HAS_PYSTRAY and self.tray_icon else None
+            
+            # Use protocol for iconify
+            self.root.bind('<Unmap>', on_iconify)
     
     def _set_window_icon(self):
         """Set the window icon from icon file."""
         try:
             # Try different icon locations
             icon_paths = [
-                os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", "yapmicpassico.ico"),
-                os.path.join(os.path.dirname(__file__), "..", "icons", "yapmicpassico.ico"),
-                os.path.join(os.path.dirname(__file__), "icons", "yapmicpassico.ico"),
+                os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", "icon.png"),
+                os.path.join(os.path.dirname(__file__), "..", "icons", "icon.png"),
+                os.path.join(os.path.dirname(__file__), "icons", "icon.png"),
             ]
             
             icon_path = None
@@ -89,7 +106,16 @@ class ClientGUI:
                     break
             
             if icon_path:
-                self.root.iconbitmap(icon_path)
+                # Try iconbitmap first (for .ico files), then use PhotoImage for PNG
+                try:
+                    if icon_path.endswith('.ico'):
+                        self.root.iconbitmap(icon_path)
+                    elif HAS_PIL:
+                        img = Image.open(icon_path)
+                        self.icon_img = ImageTk.PhotoImage(img)
+                        self.root.iconphoto(True, self.icon_img)
+                except:
+                    pass
         except Exception as e:
             # Icon setting is optional, don't fail if it doesn't work
             pass
@@ -109,9 +135,9 @@ class ClientGUI:
         if HAS_PIL:
             try:
                 icon_paths = [
-                    os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", "yapmicpass.png"),
-                    os.path.join(os.path.dirname(__file__), "..", "icons", "yapmicpass.png"),
-                    os.path.join(os.path.dirname(__file__), "icons", "yapmicpass.png"),
+                    os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", "icon.png"),
+                    os.path.join(os.path.dirname(__file__), "..", "icons", "icon.png"),
+                    os.path.join(os.path.dirname(__file__), "icons", "icon.png"),
                 ]
                 
                 icon_path = None
@@ -542,9 +568,9 @@ class ClientGUI:
         try:
             # Try to load icon for tray
             icon_paths = [
-                os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", "yapmicpass.png"),
-                os.path.join(os.path.dirname(__file__), "..", "icons", "yapmicpass.png"),
-                os.path.join(os.path.dirname(__file__), "icons", "yapmicpass.png"),
+                os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", "icon.png"),
+                os.path.join(os.path.dirname(__file__), "..", "icons", "icon.png"),
+                os.path.join(os.path.dirname(__file__), "icons", "icon.png"),
             ]
             
             tray_image = None
@@ -585,6 +611,28 @@ class ClientGUI:
         self.root.focus_force()
         self.hidden_to_tray = False
     
+    def on_window_unmap(self, event=None):
+        """Handle window unmapping (minimizing)."""
+        if event and event.widget == self.root:
+            # Check if window is being minimized (iconified)
+            if HAS_PYSTRAY and self.tray_icon and not self.hidden_to_tray:
+                # Small delay to check window state
+                self.root.after(100, lambda: self.check_and_hide_to_tray())
+    
+    def check_and_hide_to_tray(self):
+        """Check if window should be hidden to tray."""
+        try:
+            # If window is still iconified, hide to tray
+            if self.root.state() == 'iconic' and not self.hidden_to_tray:
+                self.hide_to_tray()
+        except:
+            pass
+    
+    def on_window_map(self, event=None):
+        """Handle window mapping (restoring)."""
+        if event.widget == self.root:
+            self.hidden_to_tray = False
+    
     def hide_to_tray(self):
         """Hide window to system tray."""
         if self.tray_icon:
@@ -602,11 +650,12 @@ class ClientGUI:
         self.root.quit()
         self.root.destroy()
     
-    def on_closing(self):
-        """Handle window close event."""
+    def on_closing(self, event=None):
+        """Handle window close event - always minimize to tray."""
         if HAS_PYSTRAY and self.tray_icon:
             # Minimize to tray instead of closing
             self.hide_to_tray()
+            return "break"  # Prevent default close behavior
         else:
             # No tray support, ask to quit
             if self.running:
@@ -615,6 +664,12 @@ class ClientGUI:
                     self.root.destroy()
             else:
                 self.root.destroy()
+    
+    def on_minimize(self, event=None):
+        """Handle window minimize event - minimize to tray."""
+        if HAS_PYSTRAY and self.tray_icon:
+            self.hide_to_tray()
+            return "break"  # Prevent default minimize behavior
 
 def main():
     root = tk.Tk()
