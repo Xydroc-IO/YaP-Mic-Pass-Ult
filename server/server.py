@@ -25,11 +25,13 @@ class MicStreamServer:
         self.running = False
         self.server_socket = None
         self.client_socket = None
-        # Small queue for low latency (only 2-3 chunks buffered)
-        self.audio_queue = queue.Queue(maxsize=3)
+        # Balanced queue for smooth audio (prevent choppiness)
+        self.audio_queue = queue.Queue(maxsize=5)
         self.sample_rate = 44100
         self.channels = 1
-        self.chunk_size = 256
+        self.chunk_size = 128
+        self.quality = 'balanced'
+        self.last_audio_data = None  # For interpolation if frame is lost
         self.pulseaudio_module_index = None
         self.pipe_path = None
         self.pipe_file = None
@@ -396,16 +398,24 @@ class MicStreamServer:
                     self.sample_rate = int(parts[1])
                     self.channels = int(parts[2])
                     self.chunk_size = int(parts[3])
+                    self.quality = parts[4] if len(parts) >= 5 else 'balanced'
+                    
                     print(f"Audio configuration received:")
                     print(f"  Sample rate: {self.sample_rate} Hz")
                     print(f"  Channels: {self.channels}")
                     print(f"  Chunk size: {self.chunk_size}")
+                    print(f"  Quality: {self.quality}")
                     
-                    # If sample rate or channels changed, we need to recreate the pipe-source
-                    # For simplicity, we'll just warn if it doesn't match
-                    if self.sample_rate != 44100 or self.channels != 1:
-                        print(f"Warning: Client config ({self.sample_rate} Hz, {self.channels} ch) differs from initial setup.")
-                        print("For best results, use --rate 44100 --channels 1 in the client.")
+                    # Adjust queue size based on quality (but keep minimum buffer for smooth playback)
+                    if self.quality == 'low_latency':
+                        # Small queue but not too small to prevent choppiness
+                        self.audio_queue = queue.Queue(maxsize=3)
+                    elif self.quality == 'high_quality':
+                        # Larger queue for high quality
+                        self.audio_queue = queue.Queue(maxsize=8)
+                    else:
+                        # Balanced - enough buffer for smooth audio
+                        self.audio_queue = queue.Queue(maxsize=5)
                     
                     return True
         except Exception as e:
@@ -423,20 +433,42 @@ class MicStreamServer:
             print(f"Opening pipe for writing: {self.pipe_path}")
             print("Waiting for application to connect to virtual device...")
             
-            self.pipe_file = open(self.pipe_path, 'wb')
+            # Open pipe with minimal buffering (small buffer for smooth audio)
+            # buffering=0 causes issues, use small buffer instead
+            self.pipe_file = open(self.pipe_path, 'wb', buffering=4096)
             print("Pipe opened successfully. Streaming audio...")
             
             while self.running or not self.audio_queue.empty():
                 try:
-                    # Get audio data from queue (no timeout for minimal latency)
-                    audio_data = self.audio_queue.get(timeout=0.01)
-                    
-                    # Write to pipe immediately (minimal buffering)
+                    # Get audio data from queue (balanced timeout for smooth audio)
+                    timeout = 0.01 if self.quality == 'low_latency' else 0.02
                     try:
-                        self.pipe_file.write(audio_data)
-                        # Flush every 4 chunks (~23ms at 256 samples/chunk, 44100Hz) for low latency
+                        audio_data = self.audio_queue.get(timeout=timeout)
+                        self.last_audio_data = audio_data  # Store last frame
+                    except queue.Empty:
+                        # If queue is empty, repeat last frame to prevent audio dropouts
+                        if self.last_audio_data:
+                            audio_data = self.last_audio_data
+                        else:
+                            continue
+                    
+                    # Write to pipe - ensure continuous audio stream
+                    try:
+                        # Write complete frame
+                        bytes_written = self.pipe_file.write(audio_data)
+                        
+                        # Ensure all data is written
+                        if bytes_written < len(audio_data):
+                            # Write remaining data
+                            remaining = audio_data[bytes_written:]
+                            while remaining:
+                                written = self.pipe_file.write(remaining)
+                                remaining = remaining[written:]
+                        
+                        # Flush periodically to ensure smooth playback
                         self.write_count += 1
-                        if self.write_count % 4 == 0:
+                        flush_interval = 3 if self.quality == 'low_latency' else 5
+                        if self.write_count % flush_interval == 0:
                             self.pipe_file.flush()
                     except BrokenPipeError:
                         print("\nPipe broken - application disconnected from virtual device.")
@@ -485,35 +517,87 @@ class MicStreamServer:
                     # Calculate expected data size
                     data_size = self.chunk_size * self.channels * 2  # 2 bytes per sample (16-bit)
                     
-                    # Receive audio data (try to get exact size, but accept partial)
-                    data = b''
-                    while len(data) < data_size:
-                        chunk = self.client_socket.recv(data_size - len(data))
-                        if not chunk:
-                            if len(data) == 0:
-                                print("\nClient disconnected.")
-                                break
-                            # Partial data received, use it
-                            break
-                        data += chunk
+                    # Receive audio data (ensure complete frames for smooth audio)
+                    # Set reasonable timeout for reliable data reception
+                    self.client_socket.settimeout(0.1)  # Longer timeout to ensure complete frames
                     
-                    if not data:
-                        print("\nClient disconnected.")
+                    try:
+                        # Receive complete frame
+                        data = b''
+                        remaining = data_size
+                        
+                        while remaining > 0:
+                            chunk = self.client_socket.recv(remaining)
+                            if not chunk:
+                                if len(data) == 0:
+                                    print("\nClient disconnected.")
+                                    break
+                                # Partial data - pad with silence to prevent audio glitches
+                                padding = b'\x00' * remaining
+                                data = data + padding
+                                break
+                            data += chunk
+                            remaining -= len(chunk)
+                        
+                        if not data or len(data) == 0:
+                            break
+                        
+                        # Ensure we have exactly the expected size (critical for smooth audio)
+                        if len(data) < data_size:
+                            # Pad with silence if incomplete (prevents choppy audio)
+                            padding = b'\x00' * (data_size - len(data))
+                            data = data + padding
+                        elif len(data) > data_size:
+                            # This shouldn't happen, but handle it
+                            data = data[:data_size]
+                            
+                    except socket.timeout:
+                        # Timeout - continue but don't skip frames (maintains audio continuity)
+                        continue
+                    except socket.error as e:
+                        print(f"\nConnection error: {e}")
                         break
                     
-                    # Queue audio for writing to pipe (small queue for low latency)
+                    # Validate audio data size before queuing
+                    expected_size = self.chunk_size * self.channels * 2
+                    if len(data) != expected_size:
+                        # Pad or truncate to expected size for smooth playback
+                        if len(data) < expected_size:
+                            # Pad with silence (better than choppy audio)
+                            padding = b'\x00' * (expected_size - len(data))
+                            data = data + padding
+                        elif len(data) > expected_size:
+                            # Truncate if oversized
+                            data = data[:expected_size]
+                    
+                    # Queue audio for writing to pipe (smooth buffering)
                     try:
                         self.audio_queue.put_nowait(data)
                     except queue.Full:
-                        # Drop old frames immediately to prevent latency buildup
-                        # This keeps latency minimal by always playing the latest audio
+                        # Drop old frames strategically to prevent latency buildup
+                        # But maintain minimum buffer for smooth playback
+                        dropped = 0
+                        # Keep at least 2 frames in queue for smooth audio
+                        min_buffer = 2 if self.quality == 'low_latency' else 3
+                        max_drop = max(1, self.audio_queue.qsize() - min_buffer)
+                        
+                        while dropped < max_drop:
+                            try:
+                                _ = self.audio_queue.get_nowait()
+                                dropped += 1
+                            except queue.Empty:
+                                break
+                        
+                        # Add new frame
                         try:
-                            # Drop oldest frame
-                            _ = self.audio_queue.get_nowait()
-                            # Add new frame
                             self.audio_queue.put_nowait(data)
-                        except queue.Empty:
-                            pass
+                        except queue.Full:
+                            # If still full, drop one more and add (maintains continuity)
+                            try:
+                                _ = self.audio_queue.get_nowait()
+                                self.audio_queue.put_nowait(data)
+                            except queue.Empty:
+                                pass
                     
                 except socket.error as e:
                     print(f"\nConnection error: {e}")

@@ -34,8 +34,15 @@ class ServerGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("YaP Mic Pass Ult - Server")
-        self.root.geometry("700x600")
+        self.root.geometry("750x600")
         self.root.resizable(True, True)
+        
+        # Configure modern style
+        style = ttk.Style()
+        style.theme_use('clam')  # Modern theme
+        style.configure('Title.TLabel', font=('Segoe UI', 14, 'bold'))
+        style.configure('Status.TLabel', font=('Segoe UI', 9))
+        style.configure('Heading.TLabel', font=('Segoe UI', 10, 'bold'))
         
         # Set window icon
         self._set_window_icon()
@@ -115,17 +122,22 @@ class ServerGUI:
             pass
     
     def create_widgets(self):
-        # Main container
-        main_frame = ttk.Frame(self.root, padding="10")
+        # Main container with minimal padding
+        main_frame = ttk.Frame(self.root, padding="8")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(1, weight=1)
         
-        # Title with icon
-        title_frame = ttk.Frame(main_frame)
-        title_frame.grid(row=0, column=0, columnspan=2, pady=(0, 20))
+        # Modern header with icon
+        header_frame = ttk.Frame(main_frame)
+        header_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 12))
         
-        # Try to load and display icon
+        # Icon and title
+        title_container = ttk.Frame(header_frame)
+        title_container.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
         if HAS_PIL:
             try:
                 icon_paths = [
@@ -142,114 +154,105 @@ class ServerGUI:
                 
                 if icon_path:
                     img = Image.open(icon_path)
-                    img = img.resize((32, 32), Image.Resampling.LANCZOS)
+                    img = img.resize((28, 28), Image.Resampling.LANCZOS)
                     self.icon_photo = ImageTk.PhotoImage(img)
-                    icon_label = ttk.Label(title_frame, image=self.icon_photo)
-                    icon_label.grid(row=0, column=0, padx=(0, 10))
+                    icon_label = ttk.Label(title_container, image=self.icon_photo)
+                    icon_label.pack(side=tk.LEFT, padx=(0, 8))
             except Exception:
-                pass  # Continue without icon if it fails
+                pass
         
-        title_label = ttk.Label(title_frame, text="YaP Mic Pass Ult - Server", 
-                               font=("Arial", 16, "bold"))
-        title_label.grid(row=0, column=1)
+        title_label = ttk.Label(title_container, text="YaP Mic Pass Ult - Server", 
+                               style='Title.TLabel')
+        title_label.pack(side=tk.LEFT)
         
-        # Configuration frame
-        config_frame = ttk.LabelFrame(main_frame, text="Configuration", padding="10")
-        config_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
-        config_frame.columnconfigure(1, weight=1)
+        # Status indicator in header
+        self.header_status = ttk.Label(header_frame, text="●", font=('Segoe UI', 12),
+                                      foreground='red')
+        self.header_status.pack(side=tk.RIGHT, padx=(10, 0))
         
-        # Port configuration
-        ttk.Label(config_frame, text="Port:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        # Configuration tab
+        config_tab = ttk.Frame(main_frame, padding="10")
+        config_tab.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 8))
+        config_tab.columnconfigure(1, weight=1)
+        
+        # Compact configuration grid
+        ttk.Label(config_tab, text="Port:", width=18, anchor=tk.W).grid(row=0, column=0, sticky=tk.W, pady=6)
         self.port_var = tk.StringVar(value="5000")
-        port_entry = ttk.Entry(config_frame, textvariable=self.port_var, width=20)
-        port_entry.grid(row=0, column=1, sticky=tk.W, padx=(10, 0), pady=5)
+        port_entry = ttk.Entry(config_tab, textvariable=self.port_var, width=25)
+        port_entry.grid(row=0, column=1, sticky=tk.W, padx=(8, 0), pady=6)
         
-        # Virtual device name
-        ttk.Label(config_frame, text="Device Name:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        ttk.Label(config_tab, text="Device Name:", width=18, anchor=tk.W).grid(row=1, column=0, sticky=tk.W, pady=6)
         self.device_name_var = tk.StringVar(value="YaP-Mic-Pass-Ult")
-        device_entry = ttk.Entry(config_frame, textvariable=self.device_name_var, width=20)
-        device_entry.grid(row=1, column=1, sticky=tk.W, padx=(10, 0), pady=5)
+        device_entry = ttk.Entry(config_tab, textvariable=self.device_name_var, width=25)
+        device_entry.grid(row=1, column=1, sticky=tk.W, padx=(8, 0), pady=6)
         
-        # Volume control for virtual device
-        volume_frame = ttk.Frame(config_frame)
-        volume_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        volume_frame.columnconfigure(1, weight=1)
+        # Volume control
+        ttk.Label(config_tab, text="Device Volume:", width=18, anchor=tk.W).grid(row=2, column=0, sticky=tk.W, pady=6)
+        volume_frame = ttk.Frame(config_tab)
+        volume_frame.grid(row=2, column=1, sticky=(tk.W, tk.E), padx=(8, 0), pady=6)
+        volume_frame.columnconfigure(0, weight=1)
         
-        ttk.Label(volume_frame, text="Device Volume:").grid(row=0, column=0, sticky=tk.W)
         self.device_volume_var = tk.DoubleVar(value=1.0)
         volume_scale = ttk.Scale(volume_frame, from_=0.0, to=2.0,
-                                variable=self.device_volume_var, orient=tk.HORIZONTAL,
-                                length=200)
-        volume_scale.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(10, 10))
+                                variable=self.device_volume_var, orient=tk.HORIZONTAL)
+        volume_scale.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=(0, 8))
         
-        self.device_volume_label = ttk.Label(volume_frame, text="100%")
-        self.device_volume_label.grid(row=0, column=2, sticky=tk.W)
+        self.device_volume_label = ttk.Label(volume_frame, text="100%", width=5)
+        self.device_volume_label.grid(row=0, column=1)
         
-        # Update volume label and apply to device
         self.device_volume_var.trace('w', self._update_device_volume)
         
-        # Control frame
+        # Control button
         control_frame = ttk.Frame(main_frame)
-        control_frame.grid(row=2, column=0, columnspan=2, pady=(0, 10))
+        control_frame.grid(row=2, column=0, columnspan=2, pady=(0, 8))
         
-        # Start/Stop button
-        self.start_stop_button = ttk.Button(control_frame, text="Start Server", 
-                                           command=self.toggle_server, width=20)
-        self.start_stop_button.pack(side=tk.LEFT, padx=5)
+        self.start_stop_button = ttk.Button(control_frame, text="▶ Start Server", 
+                                           command=self.toggle_server, width=18)
+        self.start_stop_button.pack(side=tk.LEFT, padx=4)
         
-        # Status frame
-        status_frame = ttk.LabelFrame(main_frame, text="Status", padding="10")
-        status_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
-        status_frame.columnconfigure(1, weight=1)
+        # Status indicators (compact, side by side)
+        status_container = ttk.Frame(main_frame)
+        status_container.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 8))
+        status_container.columnconfigure(0, weight=1)
+        status_container.columnconfigure(2, weight=1)
+        status_container.columnconfigure(4, weight=1)
         
-        # Server status
-        ttk.Label(status_frame, text="Server:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        self.server_status_label = ttk.Label(status_frame, text="Stopped", 
-                                            foreground="red", font=("Arial", 10, "bold"))
-        self.server_status_label.grid(row=0, column=1, sticky=tk.W, padx=(10, 0), pady=5)
+        self.server_status_label = ttk.Label(status_container, text="● Stopped", 
+                                            foreground="red", style='Status.TLabel')
+        self.server_status_label.grid(row=0, column=0, sticky=tk.W, padx=4)
         
-        # Client connection status
-        ttk.Label(status_frame, text="Client:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        self.client_status_label = ttk.Label(status_frame, text="Not Connected", 
-                                            foreground="gray")
-        self.client_status_label.grid(row=1, column=1, sticky=tk.W, padx=(10, 0), pady=5)
+        self.client_status_label = ttk.Label(status_container, text="● Not Connected", 
+                                            foreground="gray", style='Status.TLabel')
+        self.client_status_label.grid(row=0, column=2, sticky=tk.W, padx=4)
         
-        # Virtual device status
-        ttk.Label(status_frame, text="Virtual Device:").grid(row=2, column=0, sticky=tk.W, pady=5)
-        self.device_status_label = ttk.Label(status_frame, text="Not Created", 
-                                            foreground="gray")
-        self.device_status_label.grid(row=2, column=1, sticky=tk.W, padx=(10, 0), pady=5)
+        self.device_status_label = ttk.Label(status_container, text="● Not Created", 
+                                            foreground="gray", style='Status.TLabel')
+        self.device_status_label.grid(row=0, column=4, sticky=tk.W, padx=4)
         
-        # Log frame
-        log_frame = ttk.LabelFrame(main_frame, text="Log", padding="10")
-        log_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        # Log frame (compact)
+        log_frame = ttk.LabelFrame(main_frame, text="Log", padding="6")
+        log_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         main_frame.rowconfigure(4, weight=1)
         
-        # Log text area
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=15, width=70, 
-                                                  wrap=tk.WORD, state=tk.DISABLED)
+        # Log text area with modern styling
+        log_container = ttk.Frame(log_frame)
+        log_container.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        log_container.columnconfigure(0, weight=1)
+        log_container.rowconfigure(0, weight=1)
+        
+        self.log_text = scrolledtext.ScrolledText(log_container, height=10, width=70, 
+                                                  wrap=tk.WORD, state=tk.DISABLED,
+                                                  font=('Consolas', 9), relief=tk.FLAT)
         self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # Log controls
+        # Compact log controls
         log_controls = ttk.Frame(log_frame)
-        log_controls.grid(row=1, column=0, sticky=tk.E, pady=(5, 0))
+        log_controls.grid(row=1, column=0, sticky=tk.E, pady=(4, 0))
         
-        clear_button = ttk.Button(log_controls, text="Clear Log", command=self.clear_log)
-        clear_button.pack(side=tk.LEFT, padx=5)
-        
-        # Instructions
-        instructions_frame = ttk.LabelFrame(main_frame, text="Instructions", padding="10")
-        instructions_frame.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E))
-        
-        instructions_text = (
-            "1. Configure port and device name (defaults are usually fine)\n"
-            "2. Click 'Start Server' to create virtual device and begin listening\n"
-            "3. Select the virtual device as microphone input in your applications\n"
-            "4. Wait for client to connect and stream audio"
-        )
-        ttk.Label(instructions_frame, text=instructions_text, justify=tk.LEFT).pack(anchor=tk.W)
+        clear_button = ttk.Button(log_controls, text="Clear", width=8, command=self.clear_log)
+        clear_button.pack(side=tk.LEFT)
     
     def log_message(self, message, level="info"):
         """Add message to log (thread-safe)."""
@@ -300,12 +303,23 @@ class ServerGUI:
     
     def _update_status(self, status_type, value, color=None):
         """Update status label."""
+        status_indicator = "●"
         if status_type == "server":
-            self.server_status_label.config(text=value, foreground=color or "black")
+            status_text = f"{status_indicator} {value}"
+            self.server_status_label.config(text=status_text, foreground=color or "black")
+            # Update header status
+            if color == "green":
+                self.header_status.config(text="●", foreground="green")
+            elif color == "red":
+                self.header_status.config(text="●", foreground="red")
+            elif color == "orange":
+                self.header_status.config(text="●", foreground="orange")
         elif status_type == "client":
-            self.client_status_label.config(text=value, foreground=color or "black")
+            status_text = f"{status_indicator} {value}"
+            self.client_status_label.config(text=status_text, foreground=color or "black")
         elif status_type == "device":
-            self.device_status_label.config(text=value, foreground=color or "black")
+            status_text = f"{status_indicator} {value}"
+            self.device_status_label.config(text=status_text, foreground=color or "black")
     
     def _update_device_volume(self, *args):
         """Update virtual device volume when scale changes."""
@@ -366,6 +380,7 @@ class ServerGUI:
             
             self.log_message("Starting server...", "info")
             self.update_status("server", "Starting...", "orange")
+            self.start_stop_button.config(text="⏸ Starting...", state=tk.DISABLED)
             
         except ValueError:
             messagebox.showerror("Error", "Port must be a number")
@@ -395,13 +410,13 @@ class ServerGUI:
                     self.update_status("device", "Failed", "red")
                     self.log_message("Failed to create virtual device", "error")
                     self.running = False
-                    self.root.after(0, lambda: self.start_stop_button.config(text="Start Server", state=tk.NORMAL))
+                    self.root.after(0, lambda: self.start_stop_button.config(text="▶ Start Server", state=tk.NORMAL))
                     return
             
             if self.server.start_server():
                 self.update_status("server", "Running", "green")
                 self.log_message(f"Server listening on port {self.server.port}", "success")
-                self.root.after(0, lambda: self.start_stop_button.config(text="Stop Server", state=tk.NORMAL))
+                self.root.after(0, lambda: self.start_stop_button.config(text="■ Stop Server", state=tk.NORMAL))
                 
                 # Now handle connections
                 while self.running and self.server.running:
@@ -508,7 +523,7 @@ class ServerGUI:
         self.update_status("server", "Stopped", "red")
         self.update_status("client", "Not Connected", "gray")
         self.update_status("device", "Not Created", "gray")
-        self.root.after(0, lambda: self.start_stop_button.config(text="Start Server", state=tk.NORMAL))
+        self.root.after(0, lambda: self.start_stop_button.config(text="▶ Start Server", state=tk.NORMAL))
         self.log_message("Server stopped", "info")
     
     def setup_system_tray(self):

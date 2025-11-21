@@ -21,8 +21,8 @@ except ImportError:
 
 class MicStreamClient:
     def __init__(self, server_host='localhost', server_port=5000, 
-                 sample_rate=44100, channels=1, chunk_size=256, 
-                 device_index=None, volume=1.0):
+                 sample_rate=44100, channels=1, chunk_size=128, 
+                 device_index=None, volume=1.0, quality='balanced'):
         self.server_host = server_host
         self.server_port = server_port
         self.sample_rate = sample_rate
@@ -30,14 +30,44 @@ class MicStreamClient:
         self.chunk_size = chunk_size
         self.device_index = device_index
         self.volume = max(0.0, min(2.0, volume))  # Clamp between 0.0 and 2.0
+        self.quality = quality  # 'low_latency', 'balanced', 'high_quality'
         self.running = False
         self.socket = None
         self.audio = None
         self.stream = None
+        
+        # Apply quality presets
+        self._apply_quality_preset()
     
     def set_volume(self, volume):
         """Set volume/gain (0.0 to 2.0)."""
         self.volume = max(0.0, min(2.0, volume))
+    
+    def _apply_quality_preset(self):
+        """Apply quality preset settings for latency optimization."""
+        if self.quality == 'low_latency':
+            # Ultra low latency: smaller chunks, lower sample rate
+            if self.chunk_size > 128:
+                self.chunk_size = 128
+            if self.sample_rate > 22050:
+                self.sample_rate = 22050
+        elif self.quality == 'high_quality':
+            # High quality: larger chunks, higher sample rate
+            if self.chunk_size < 512:
+                self.chunk_size = 512
+            if self.sample_rate < 44100:
+                self.sample_rate = 44100
+        # 'balanced' uses user-provided settings
+    
+    def set_quality(self, quality):
+        """Set quality preset: 'low_latency', 'balanced', or 'high_quality'."""
+        if quality in ['low_latency', 'balanced', 'high_quality']:
+            self.quality = quality
+            self._apply_quality_preset()
+    
+    def set_sample_rate(self, sample_rate):
+        """Dynamically change sample rate (requires reconnection)."""
+        self.sample_rate = sample_rate
         
     def list_audio_devices(self):
         """List all available audio input devices."""
@@ -88,9 +118,10 @@ class MicStreamClient:
         config = {
             'sample_rate': self.sample_rate,
             'channels': self.channels,
-            'chunk_size': self.chunk_size
+            'chunk_size': self.chunk_size,
+            'quality': self.quality
         }
-        config_str = f"CONFIG:{config['sample_rate']}:{config['channels']}:{config['chunk_size']}\n"
+        config_str = f"CONFIG:{config['sample_rate']}:{config['channels']}:{config['chunk_size']}:{config['quality']}\n"
         try:
             self.socket.sendall(config_str.encode())
             return True
@@ -104,15 +135,19 @@ class MicStreamClient:
         
         try:
             # Open audio stream with minimal latency settings
+            # Use smallest possible buffer for lowest latency
+            frames_per_buffer = min(self.chunk_size, 64)  # Cap at 64 for ultra-low latency
+            
             self.stream = self.audio.open(
                 format=pyaudio.paInt16,
                 channels=self.channels,
                 rate=self.sample_rate,
                 input=True,
                 input_device_index=self.device_index,
-                frames_per_buffer=self.chunk_size,
+                frames_per_buffer=frames_per_buffer,
                 stream_callback=None,
-                start=False
+                start=False,
+                input_latency=0.0  # Request minimum latency
             )
             
             # Start stream immediately to minimize initial latency
@@ -128,18 +163,32 @@ class MicStreamClient:
             
             self.running = True
             
+            # Buffer for smooth audio transmission
+            frame_count = 0
+            expected_size = self.chunk_size * self.channels * 2  # Bytes per chunk
+            
             while self.running:
                 try:
-                    # Read audio data
+                    # Read audio data (must be complete frame)
                     data = self.stream.read(self.chunk_size, exception_on_overflow=False)
+                    
+                    # Validate audio data size
+                    if len(data) != expected_size:
+                        # If partial read, pad with silence to maintain audio continuity
+                        if len(data) < expected_size:
+                            padding = b'\x00' * (expected_size - len(data))
+                            data = data + padding
+                        # If oversize, truncate (shouldn't happen)
+                        elif len(data) > expected_size:
+                            data = data[:expected_size]
                     
                     # Apply volume/gain if not 1.0 (inline for speed)
                     if self.volume != 1.0:
                         if HAS_NUMPY:
-                            # Fast path using numpy (vectorized)
-                            audio_array = np.frombuffer(data, dtype=np.int16).astype(np.float32)
-                            audio_array = audio_array * self.volume
-                            audio_array = np.clip(audio_array, -32768.0, 32767.0).astype(np.int16)
+                            # Fast path using numpy (vectorized, in-place when possible)
+                            audio_array = np.frombuffer(data, dtype=np.int16)
+                            audio_array = (audio_array.astype(np.float32) * self.volume).astype(np.int16)
+                            np.clip(audio_array, -32768, 32767, out=audio_array)
                             data = audio_array.tobytes()
                         else:
                             # Fallback using struct (slower but no dependencies)
@@ -147,12 +196,16 @@ class MicStreamClient:
                             samples = [int(max(-32768, min(32767, s * self.volume))) for s in samples]
                             data = struct.pack(f'<{len(samples)}h', *samples)
                     
-                    # Send to server immediately (no buffering)
+                    # Send to server - ensure complete transmission
                     try:
+                        # Use sendall to ensure all data is sent (prevents choppy audio)
                         self.socket.sendall(data)
-                    except socket.error:
+                    except socket.error as e:
                         # If send fails, break to handle disconnection
+                        print(f"\nConnection lost: {e}")
                         break
+                    
+                    frame_count += 1
                     
                 except socket.error as e:
                     print(f"\nConnection lost: {e}")
@@ -253,14 +306,27 @@ def main():
     parser.add_argument(
         "--chunk",
         type=int,
-        default=256,
-        help="Chunk size in frames (default: 256, lower = less latency but more CPU)"
+        default=128,
+        help="Chunk size in frames (default: 128, lower = less latency but more CPU)"
     )
     parser.add_argument(
         "--volume",
         type=float,
         default=1.0,
         help="Volume/gain multiplier (0.0-2.0, default: 1.0)"
+    )
+    parser.add_argument(
+        "--quality",
+        type=str,
+        choices=['low_latency', 'balanced', 'high_quality'],
+        default='balanced',
+        help="Quality preset: low_latency (fastest), balanced (default), high_quality (best audio)"
+    )
+    parser.add_argument(
+        "--rate",
+        type=int,
+        default=44100,
+        help="Sample rate in Hz (default: 44100, lower = less latency)"
     )
     parser.add_argument(
         "--list",
@@ -277,7 +343,8 @@ def main():
         channels=args.channels,
         chunk_size=args.chunk,
         device_index=args.device,
-        volume=args.volume
+        volume=args.volume,
+        quality=args.quality
     )
     
     if args.list:
