@@ -425,17 +425,33 @@ class ServerGUI:
                             self.update_status("client", "Connected", "green")
                             self.log_message("Client connected", "success")
                             
+                            # Receive and validate config
                             if self.server.receive_audio_config():
                                 self.log_message("Audio configuration received", "info")
                                 self.log_message(f"  Sample rate: {self.server.sample_rate} Hz", "info")
                                 self.log_message(f"  Channels: {self.server.channels}", "info")
+                                self.log_message(f"  Chunk size: {self.server.chunk_size}", "info")
+                                self.log_message(f"  Quality: {self.server.quality}", "info")
                                 
                                 # Stream audio
                                 self._stream_audio()
+                            else:
+                                # Config reception failed
+                                self.log_message("Failed to receive audio configuration", "error")
+                                self.update_status("client", "Disconnected", "red")
+                                if self.server.client_socket:
+                                    try:
+                                        self.server.client_socket.close()
+                                    except:
+                                        pass
+                                    self.server.client_socket = None
                             
-                            # Close connection
+                            # Close connection if still open
                             if self.server.client_socket:
-                                self.server.client_socket.close()
+                                try:
+                                    self.server.client_socket.close()
+                                except:
+                                    pass
                                 self.server.client_socket = None
                             
                             self.update_status("client", "Not Connected", "gray")
@@ -443,7 +459,10 @@ class ServerGUI:
                             
                             # Reset pipe for next connection
                             if self.server.pipe_file:
-                                self.server.pipe_file.close()
+                                try:
+                                    self.server.pipe_file.close()
+                                except:
+                                    pass
                                 self.server.pipe_file = None
                             
                             # Recreate pipe for next connection
@@ -454,9 +473,14 @@ class ServerGUI:
                                     pass
                             
                             self.log_message("Waiting for next client connection...", "info")
+                    except socket.timeout:
+                        # Timeout is expected when checking for connections
+                        continue
                     except Exception as e:
                         if self.running:
                             self.log_message(f"Connection error: {e}", "error")
+                            import traceback
+                            self.log_message(traceback.format_exc(), "error")
                         break
             else:
                 self.log_message("Failed to start server", "error")

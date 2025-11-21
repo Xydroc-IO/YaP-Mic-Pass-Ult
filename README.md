@@ -296,6 +296,57 @@ After connection, the server will stream audio to the virtual device, which you 
 - **Latency**: Network latency depends on network conditions and distance between client and server.
 - **Single Client**: The current implementation handles one client connection at a time.
 
+## Building AppImages
+
+Portable AppImages can be built for both the client and server applications. AppImages are self-contained executables that include all dependencies and work across different Linux distributions.
+
+### Prerequisites
+
+- Python 3.6+ with pip
+- PyInstaller: `pip install pyinstaller`
+- appimagetool (will be downloaded automatically if not found)
+
+### Building
+
+Run the build script:
+
+```bash
+./build-appimages.sh
+```
+
+This will:
+1. Check for and install required dependencies (PyInstaller)
+2. Download appimagetool if needed
+3. Build both client and server AppImages using PyInstaller
+4. Create portable AppImages in `build/appimages/`
+
+### Output
+
+After building, you'll find:
+- `build/appimages/YaP-Mic-Pass-Ult-Client-<arch>.AppImage`
+- `build/appimages/YaP-Mic-Pass-Ult-Server-<arch>.AppImage`
+
+### Using AppImages
+
+AppImages are already executable. Simply:
+
+```bash
+# Make executable (if needed)
+chmod +x YaP-Mic-Pass-Ult-Client-*.AppImage
+chmod +x YaP-Mic-Pass-Ult-Server-*.AppImage
+
+# Run directly
+./YaP-Mic-Pass-Ult-Client-*.AppImage
+./YaP-Mic-Pass-Ult-Server-*.AppImage
+```
+
+You can also:
+- Move them to your Applications directory
+- Create desktop shortcuts
+- Double-click to run (if your desktop environment supports AppImages)
+
+**Note**: AppImages require FUSE support on the host system. Most modern Linux distributions include this by default.
+
 ## License
 
 This project is provided as-is for educational and personal use.

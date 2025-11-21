@@ -102,31 +102,63 @@ class MicStreamClient:
             self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             # Set socket buffer sizes for lower latency
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 8192)
+            # Set connection timeout
+            self.socket.settimeout(10.0)
             self.socket.connect((self.server_host, self.server_port))
+            # Remove timeout after connection (will be set during streaming)
+            self.socket.settimeout(None)
             print(f"Connected to server at {self.server_host}:{self.server_port}")
             return True
+        except socket.timeout:
+            print(f"Error: Connection timeout to server at {self.server_host}:{self.server_port}")
+            print("Make sure the server is running and accessible.")
+            return False
         except ConnectionRefusedError:
             print(f"Error: Could not connect to server at {self.server_host}:{self.server_port}")
             print("Make sure the server is running.")
             return False
+        except socket.gaierror as e:
+            print(f"Error: Could not resolve hostname '{self.server_host}': {e}")
+            return False
         except Exception as e:
             print(f"Error connecting to server: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def send_audio_config(self):
         """Send audio configuration to server."""
-        config = {
-            'sample_rate': self.sample_rate,
-            'channels': self.channels,
-            'chunk_size': self.chunk_size,
-            'quality': self.quality
-        }
-        config_str = f"CONFIG:{config['sample_rate']}:{config['channels']}:{config['chunk_size']}:{config['quality']}\n"
         try:
-            self.socket.sendall(config_str.encode())
-            return True
+            if not self.socket:
+                print("Error: Socket not connected")
+                return False
+            
+            config = {
+                'sample_rate': self.sample_rate,
+                'channels': self.channels,
+                'chunk_size': self.chunk_size,
+                'quality': self.quality
+            }
+            config_str = f"CONFIG:{config['sample_rate']}:{config['channels']}:{config['chunk_size']}:{config['quality']}\n"
+            
+            # Send config with timeout
+            self.socket.settimeout(5.0)
+            try:
+                bytes_sent = self.socket.sendall(config_str.encode('utf-8'))
+                print(f"Audio configuration sent: {config_str.strip()}")
+                # Remove timeout after sending
+                self.socket.settimeout(None)
+                return True
+            except socket.timeout:
+                print("Error: Timeout sending audio configuration")
+                return False
+            except socket.error as e:
+                print(f"Error: Socket error sending config: {e}")
+                return False
         except Exception as e:
             print(f"Error sending config: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def stream_audio(self):

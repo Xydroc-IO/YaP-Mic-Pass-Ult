@@ -368,14 +368,19 @@ class MicStreamServer:
     def accept_client(self):
         """Accept a client connection."""
         try:
+            # Set timeout for accept so we can check if server should still be running
+            self.server_socket.settimeout(1.0)
             self.client_socket, client_address = self.server_socket.accept()
             # Configure client socket for low latency
             self.client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             self.client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8192)
-            # Set socket to non-blocking for faster processing (optional)
-            # self.client_socket.setblocking(False)
+            # Keep socket blocking for reliable data reception
+            self.client_socket.setblocking(True)
             print(f"Client connected from {client_address[0]}:{client_address[1]}")
             return True
+        except socket.timeout:
+            # Timeout is expected when checking if server should continue
+            return False
         except Exception as e:
             print(f"Error accepting client: {e}")
             return False
@@ -383,43 +388,100 @@ class MicStreamServer:
     def receive_audio_config(self):
         """Receive audio configuration from client."""
         try:
-            # Receive config line
-            buffer = b""
-            while b"\n" not in buffer:
-                data = self.client_socket.recv(1)
-                if not data:
-                    return False
-                buffer += data
+            # Set timeout for config reception (5 seconds should be enough)
+            self.client_socket.settimeout(5.0)
             
-            config_line = buffer.decode().strip()
-            if config_line.startswith("CONFIG:"):
-                parts = config_line.split(":")
-                if len(parts) >= 4:
-                    self.sample_rate = int(parts[1])
-                    self.channels = int(parts[2])
-                    self.chunk_size = int(parts[3])
-                    self.quality = parts[4] if len(parts) >= 5 else 'balanced'
-                    
-                    print(f"Audio configuration received:")
-                    print(f"  Sample rate: {self.sample_rate} Hz")
-                    print(f"  Channels: {self.channels}")
-                    print(f"  Chunk size: {self.chunk_size}")
-                    print(f"  Quality: {self.quality}")
-                    
-                    # Adjust queue size based on quality (but keep minimum buffer for smooth playback)
-                    if self.quality == 'low_latency':
-                        # Small queue but not too small to prevent choppiness
-                        self.audio_queue = queue.Queue(maxsize=3)
-                    elif self.quality == 'high_quality':
-                        # Larger queue for high quality
-                        self.audio_queue = queue.Queue(maxsize=8)
-                    else:
-                        # Balanced - enough buffer for smooth audio
-                        self.audio_queue = queue.Queue(maxsize=5)
-                    
-                    return True
+            # Receive config line - read until we get a newline
+            buffer = b""
+            max_length = 256  # Reasonable max length for config line
+            while b"\n" not in buffer and len(buffer) < max_length:
+                try:
+                    data = self.client_socket.recv(1)
+                    if not data:
+                        print("Error: Connection closed while receiving config")
+                        return False
+                    buffer += data
+                except socket.timeout:
+                    print("Error: Timeout waiting for audio configuration")
+                    return False
+            
+            if len(buffer) >= max_length:
+                print("Error: Config line too long")
+                return False
+            
+            if not buffer:
+                print("Error: Empty config received")
+                return False
+            
+            # Decode and parse config
+            try:
+                config_line = buffer.decode('utf-8').strip()
+            except UnicodeDecodeError as e:
+                print(f"Error: Failed to decode config line: {e}")
+                return False
+            
+            if not config_line.startswith("CONFIG:"):
+                print(f"Error: Invalid config format. Received: {config_line[:50]}")
+                return False
+            
+            parts = config_line.split(":")
+            if len(parts) < 4:
+                print(f"Error: Config has insufficient parts. Expected 4+, got {len(parts)}")
+                return False
+            
+            # Parse config values
+            try:
+                self.sample_rate = int(parts[1])
+                self.channels = int(parts[2])
+                self.chunk_size = int(parts[3])
+                self.quality = parts[4] if len(parts) >= 5 else 'balanced'
+                
+                # Validate values
+                if self.sample_rate < 8000 or self.sample_rate > 96000:
+                    print(f"Error: Invalid sample rate: {self.sample_rate}")
+                    return False
+                if self.channels < 1 or self.channels > 2:
+                    print(f"Error: Invalid channel count: {self.channels}")
+                    return False
+                if self.chunk_size < 64 or self.chunk_size > 4096:
+                    print(f"Error: Invalid chunk size: {self.chunk_size}")
+                    return False
+                
+                print(f"Audio configuration received:")
+                print(f"  Sample rate: {self.sample_rate} Hz")
+                print(f"  Channels: {self.channels}")
+                print(f"  Chunk size: {self.chunk_size}")
+                print(f"  Quality: {self.quality}")
+                
+                # Adjust queue size based on quality (but keep minimum buffer for smooth playback)
+                if self.quality == 'low_latency':
+                    # Small queue but not too small to prevent choppiness
+                    self.audio_queue = queue.Queue(maxsize=3)
+                elif self.quality == 'high_quality':
+                    # Larger queue for high quality
+                    self.audio_queue = queue.Queue(maxsize=8)
+                else:
+                    # Balanced - enough buffer for smooth audio
+                    self.audio_queue = queue.Queue(maxsize=5)
+                
+                # Reset timeout for streaming (will be set in stream_audio_from_client)
+                self.client_socket.settimeout(None)
+                return True
+                
+            except ValueError as e:
+                print(f"Error: Failed to parse config values: {e}")
+                return False
+                
+        except socket.timeout:
+            print("Error: Timeout receiving audio configuration")
+            return False
+        except socket.error as e:
+            print(f"Error: Socket error receiving config: {e}")
+            return False
         except Exception as e:
             print(f"Error receiving config: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def audio_writer_thread(self):
