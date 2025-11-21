@@ -231,6 +231,29 @@ class MicStreamClient:
                         elif len(data) > expected_size:
                             data = data[:expected_size]
                     
+                    # Check if audio data contains actual sound (not just silence)
+                    # Calculate RMS (Root Mean Square) to detect audio level
+                    if frame_count == 0 or frame_count % 500 == 0:  # Check every 500 frames
+                        if HAS_NUMPY:
+                            audio_array = np.frombuffer(data, dtype=np.int16)
+                            rms = np.sqrt(np.mean(audio_array.astype(np.float32)**2))
+                            max_level = np.max(np.abs(audio_array))
+                            # Normalize RMS to 0-100 scale (32767 is max for int16)
+                            rms_percent = (rms / 32767.0) * 100
+                            if frame_count == 0:
+                                print(f"Audio level monitoring enabled (RMS: {rms_percent:.1f}%, Peak: {max_level})")
+                            elif rms_percent < 0.1:
+                                print(f"Warning: Very low audio level detected (RMS: {rms_percent:.1f}%). Microphone may be muted or not capturing audio.")
+                        else:
+                            # Fallback: check if all samples are zero or very close to zero
+                            samples = struct.unpack(f'<{len(data)//2}h', data)
+                            max_sample = max(abs(s) for s in samples)
+                            if max_sample < 100:  # Very quiet threshold
+                                if frame_count == 0:
+                                    print(f"Audio level: Peak sample = {max_sample}")
+                                else:
+                                    print(f"Warning: Very low audio level (peak: {max_sample}). Microphone may be muted.")
+                    
                     # Apply volume/gain if not 1.0 (inline for speed)
                     if self.volume != 1.0:
                         if HAS_NUMPY:

@@ -498,12 +498,20 @@ class MicStreamServer:
             
             # Open pipe with minimal buffering (small buffer for smooth audio)
             # buffering=0 causes issues, use small buffer instead
+            # Note: Opening a FIFO for writing will BLOCK until something opens it for reading
             try:
+                print("Attempting to open pipe (this will block until an application connects)...")
                 self.pipe_file = open(self.pipe_path, 'wb', buffering=4096)
-                print("Pipe opened successfully. Streaming audio...")
+                print("✓ Pipe opened successfully! An application is now reading from the virtual device.")
+                print("Streaming audio to virtual device...")
             except IOError as e:
                 print(f"Error: Could not open pipe for writing: {e}")
                 print("This might happen if the pipe doesn't exist or there's a permission issue.")
+                print(f"Pipe path: {self.pipe_path}")
+                print("\nTroubleshooting:")
+                print("1. Make sure PulseAudio is running: pulseaudio --check -v")
+                print("2. Check if virtual device exists: pactl list sources short | grep YaP")
+                print("3. Select the virtual device in an application (Zoom, Discord, OBS, etc.)")
                 return
             except Exception as e:
                 print(f"Error opening pipe: {e}")
@@ -543,9 +551,18 @@ class MicStreamServer:
                         flush_interval = 3 if self.quality == 'low_latency' else 5
                         if self.write_count % flush_interval == 0:
                             self.pipe_file.flush()
+                        
+                        # Diagnostic: Check if we're receiving actual audio (not just silence)
+                        if self.write_count == 1 or self.write_count % 1000 == 0:
+                            # Quick check: see if audio data is all zeros
+                            if audio_data[:100] == b'\x00' * 100:
+                                if self.write_count == 1:
+                                    print("Warning: Receiving silence from client. Check microphone input.")
+                                elif self.write_count % 5000 == 0:  # Only warn every 5000 frames
+                                    print("Warning: Still receiving silence. Verify microphone is working and not muted.")
                     except BrokenPipeError:
-                        print("\nPipe broken - application disconnected from virtual device.")
-                        print("Reconnect an application to continue streaming.")
+                        print("\n⚠ Pipe broken - application disconnected from virtual device.")
+                        print("   Select the virtual device in an application again to continue streaming.")
                         break
                     except Exception as e:
                         print(f"Error writing to pipe: {e}")
@@ -615,6 +632,16 @@ class MicStreamServer:
                         if not data or len(data) == 0:
                             print("\nClient disconnected (empty data).")
                             break
+                        
+                        # Diagnostic: Log when we receive data
+                        if hasattr(self, '_frame_received_count'):
+                            self._frame_received_count += 1
+                        else:
+                            self._frame_received_count = 1
+                            print("✓ Receiving audio data from client...")
+                        
+                        if self._frame_received_count % 1000 == 0:
+                            print(f"Received {self._frame_received_count} audio frames from client")
                         
                         # Ensure we have exactly the expected size (critical for smooth audio)
                         if len(data) < data_size:

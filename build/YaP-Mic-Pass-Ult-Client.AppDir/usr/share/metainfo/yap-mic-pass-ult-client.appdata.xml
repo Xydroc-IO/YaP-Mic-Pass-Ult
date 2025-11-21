@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>yap-mic-pass-ult-client</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Proprietary</project_license>
+  <name>YaP Mic Pass Ult Client</name>
+  <summary>Stream microphone audio to a remote server</summary>
+  <description>
+    <p>YaP Mic Pass Ult Client captures microphone audio and streams it to a remote server over TCP.</p>
+  </description>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Network</category>
+  </categories>
+  <launchable type="desktop-id">yap-mic-pass-ult-client.desktop</launchable>
+</component>

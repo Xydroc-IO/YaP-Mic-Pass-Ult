@@ -309,6 +309,53 @@ After connection, the server will stream audio to the virtual device, which you 
 - Use `--quality high_quality` for best audio quality (increases latency)
 - Adjust volume with `--volume` option if audio is too quiet or too loud (0.0-2.0)
 
+### "Connected but no audio is being transmitted"
+
+This is a common issue with several possible causes:
+
+**1. Virtual device not selected in an application:**
+   - The server's pipe will block until an application actually selects the virtual device
+   - **Solution**: Open an application (Zoom, Discord, OBS, etc.) and select "YaP-Mic-Pass-Ult" as the microphone input
+   - The server will show "✓ Pipe opened successfully!" when an application connects
+
+**2. Microphone is muted or not capturing:**
+   - Check if your microphone is muted in system settings
+   - Verify the microphone works: `arecord -d 5 test.wav && aplay test.wav`
+   - The client will warn if it detects very low audio levels
+   - **Solution**: Unmute microphone, check system audio settings, try a different microphone
+
+**3. Microphone volume too low:**
+   - Use `--volume` option to increase gain: `--volume 1.5` or `--volume 2.0`
+   - Check system microphone volume levels
+
+**4. Wrong audio device selected:**
+   - Use `--list` to see available devices: `python3 client.py --list`
+   - Specify the correct device: `python3 client.py --device INDEX`
+
+**5. Server pipe blocking:**
+   - The server waits for an application to connect to the virtual device
+   - Check server logs - it should say "Waiting for application to connect..."
+   - **Solution**: Select the virtual device in an application (this unblocks the pipe)
+
+**6. Audio format mismatch:**
+   - Ensure client and server use compatible settings
+   - Try default settings first: `python3 client.py --host SERVER_IP`
+
+**Diagnostic steps:**
+```bash
+# On server, check if virtual device exists:
+pactl list sources short | grep YaP
+
+# On server, check if pipe is being read:
+# (Server will show "Pipe opened successfully" when an app connects)
+
+# On client, check audio levels:
+# (Client will show warnings if microphone is too quiet)
+
+# Test microphone directly:
+arecord -d 3 -f cd test.wav && aplay test.wav
+```
+
 ### Connection drops
 - Check network stability
 - Check server logs for errors
@@ -323,13 +370,22 @@ After connection, the server will stream audio to the virtual device, which you 
 
 ## Building AppImages
 
-Portable AppImages can be built for both the client and server applications. AppImages are self-contained executables that include all dependencies and work across different Linux distributions.
+Portable AppImages can be built for both the client and server applications. The AppImages are designed to work across all major Linux distributions and desktop environments (GNOME, KDE, XFCE, MATE, Cinnamon, etc.).
+
+### Features
+
+- **Cross-Distribution**: Works on Debian/Ubuntu, Arch/Manjaro, Fedora, openSUSE, and more
+- **Desktop Integration**: Full support for GNOME, KDE Plasma, XFCE, MATE, Cinnamon, and other desktop environments
+- **Icon Support**: Includes icons in all standard sizes (16x16 to 256x256) for proper display
+- **AppStream Metadata**: Includes metadata for software centers and desktop integration
+- **System Library Compatibility**: Automatically detects and bundles necessary audio libraries
 
 ### Prerequisites
 
 - Python 3.6+ with pip
 - PyInstaller: `pip install pyinstaller`
 - appimagetool (will be downloaded automatically if not found)
+- ImageMagick (optional, for icon resizing - falls back to copying if not available)
 
 ### Building
 
@@ -343,7 +399,11 @@ This will:
 1. Check for and install required dependencies (PyInstaller)
 2. Download appimagetool if needed
 3. Build both client and server AppImages using PyInstaller
-4. Create portable AppImages in `build/appimages/`
+4. Bundle necessary system libraries for audio support
+5. Create desktop files compatible with all major desktop environments
+6. Generate icons in all standard sizes
+7. Add AppStream metadata for software center integration
+8. Create portable AppImages in `build/appimages/`
 
 ### Output
 
@@ -366,11 +426,41 @@ chmod +x YaP-Mic-Pass-Ult-Server-*.AppImage
 ```
 
 You can also:
-- Move them to your Applications directory
-- Create desktop shortcuts
-- Double-click to run (if your desktop environment supports AppImages)
+- **Double-click to run** (if your desktop environment supports AppImages)
+- **Move to Applications directory**: `mv *.AppImage ~/Applications/`
+- **Create desktop shortcuts**: Right-click → "Add to Desktop" or "Create Shortcut"
+- **Integrate into application menu**: Some desktop environments automatically detect AppImages
 
-**Note**: AppImages require FUSE support on the host system. Most modern Linux distributions include this by default.
+### Desktop Environment Compatibility
+
+The AppImages are tested and work with:
+- **GNOME** (Ubuntu, Fedora, Debian)
+- **KDE Plasma** (KDE Neon, openSUSE, Manjaro KDE)
+- **XFCE** (Xubuntu, Manjaro XFCE)
+- **MATE** (Ubuntu MATE)
+- **Cinnamon** (Linux Mint)
+- **LXQt** (Lubuntu, Manjaro LXQt)
+- **Budgie** (Solus, Ubuntu Budgie)
+- **Deepin** (Deepin Linux)
+
+### System Requirements
+
+**For Client AppImage:**
+- Linux kernel 3.0+ (most modern distributions)
+- Audio input device (microphone)
+- Network connectivity to server
+
+**For Server AppImage:**
+- Linux kernel 3.0+ (most modern distributions)
+- PulseAudio installed on the system (for virtual device creation)
+- Network connectivity for client connections
+
+**Note**: 
+- AppImages require FUSE support on the host system. Most modern Linux distributions include this by default.
+- The Server AppImage requires PulseAudio to be installed on the system (it's not bundled). Install it with:
+  - Debian/Ubuntu: `sudo apt-get install pulseaudio pulseaudio-utils`
+  - Arch/Manjaro: `sudo pacman -S pulseaudio`
+  - Fedora: `sudo dnf install pulseaudio pulseaudio-utils`
 
 ## License
 

@@ -1,0 +1,19 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=YaP Mic Pass Ult Client
+GenericName=Microphone Stream Client
+Comment=Stream microphone audio to a remote server over the network
+Comment[en]=Stream microphone audio to a remote server over the network
+Exec=yap-mic-pass-ult-client
+Icon=yap-mic-pass-ult-client
+Categories=AudioVideo;Audio;Network;Utility;
+Keywords=audio;microphone;stream;network;client;
+Terminal=false
+StartupNotify=true
+MimeType=
+Actions=
+
+[Desktop Action New]
+Name=New Connection
+Exec=yap-mic-pass-ult-client

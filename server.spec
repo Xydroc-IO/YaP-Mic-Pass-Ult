@@ -15,16 +15,21 @@ datas = [
     (os.path.join(basedir, 'icons', 'icon.png'), 'icons'),
 ]
 
+# Find and include audio libraries if needed
+binaries = []
+
 a = Analysis(
     [os.path.join(basedir, 'server', 'server_gui.py')],
     pathex=[basedir],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=[
         'tkinter',
         'tkinter.ttk',
         'tkinter.scrolledtext',
         'tkinter.messagebox',
+        'tkinter.filedialog',
+        'tkinter.font',
         'PIL',
         'PIL.Image',
         'PIL.ImageTk',
@@ -39,11 +44,17 @@ a = Analysis(
         'threading',
         'subprocess',
         'socket',
+        'signal',
+        'tempfile',
+        'platform',
+        'time',
+        'os',
+        'sys',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['matplotlib', 'scipy', 'pandas'],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<schemalist>
+  <schema path="/org/gnome/design/AppIconPreview/" id="org.gnome.design.AppIconPreview" gettext-domain="app-icon-preview">
+    <key name="recent-files" type="s">
+      <default>''</default>
+      <summary>The latest opened files separated by a comma</summary>
+    </key>
+  </schema>
+</schemalist>

@@ -15,16 +15,33 @@ datas = [
     (os.path.join(basedir, 'icons', 'icon.png'), 'icons'),
 ]
 
+# Find and include audio libraries
+binaries = []
+try:
+    import pyaudio
+    # PyAudio may have platform-specific binaries
+    pyaudio_path = os.path.dirname(pyaudio.__file__) if hasattr(pyaudio, '__file__') else None
+    if pyaudio_path:
+        # Look for _portaudio shared library
+        for root, dirs, files in os.walk(pyaudio_path):
+            for file in files:
+                if '_portaudio' in file and (file.endswith('.so') or file.endswith('.dylib') or file.endswith('.dll')):
+                    binaries.append((os.path.join(root, file), '.'))
+except:
+    pass
+
 a = Analysis(
     [os.path.join(basedir, 'client', 'client_gui.py')],
     pathex=[basedir],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=[
         'tkinter',
         'tkinter.ttk',
         'tkinter.scrolledtext',
         'tkinter.messagebox',
+        'tkinter.filedialog',
+        'tkinter.font',
         'PIL',
         'PIL.Image',
         'PIL.ImageTk',
@@ -36,13 +53,18 @@ a = Analysis(
         'pystray._xorg',
         'pyaudio',
         'numpy',
+        'numpy.core',
+        'numpy.core._multiarray_umath',
         'queue',
         'threading',
+        'struct',
+        'socket',
+        'signal',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['matplotlib', 'scipy', 'pandas'],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
